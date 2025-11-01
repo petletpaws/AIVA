@@ -1,37 +1,41 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { type OpertoSettings } from "@shared/schema";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  getSettings(): Promise<OpertoSettings | undefined>;
+  saveSettings(settings: OpertoSettings): Promise<OpertoSettings>;
+  getAccessToken(): Promise<string | undefined>;
+  saveAccessToken(token: string): Promise<void>;
+  clearAccessToken(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+  private settings: OpertoSettings | undefined;
+  private accessToken: string | undefined;
 
   constructor() {
-    this.users = new Map();
+    this.settings = undefined;
+    this.accessToken = undefined;
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getSettings(): Promise<OpertoSettings | undefined> {
+    return this.settings;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async saveSettings(settings: OpertoSettings): Promise<OpertoSettings> {
+    this.settings = settings;
+    return settings;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async getAccessToken(): Promise<string | undefined> {
+    return this.accessToken;
+  }
+
+  async saveAccessToken(token: string): Promise<void> {
+    this.accessToken = token;
+  }
+
+  async clearAccessToken(): Promise<void> {
+    this.accessToken = undefined;
   }
 }
 
