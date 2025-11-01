@@ -7,14 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Task {
-  TaskID: string;
+  TaskID: string | number;
   TaskName: string;
-  TaskDescription: string;
+  TaskDescription: string | null;
   CompleteConfirmedDate: string | null;
-  Property: {
-    PropertyAbbreviation: string;
+  Property?: {
+    PropertyAbbreviation?: string;
   };
-  Staff: Array<{
+  Staff?: Array<{
     Name: string;
   }>;
 }
@@ -22,12 +22,13 @@ interface Task {
 interface TaskTableProps {
   tasks: Task[];
   isLoading?: boolean;
+  onRefresh?: () => void;
 }
 
 type SortField = 'TaskID' | 'TaskName' | 'CompleteConfirmedDate' | 'PropertyAbbreviation';
 type SortDirection = 'asc' | 'desc';
 
-export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) {
+export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('TaskID');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -48,9 +49,9 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
     let filtered = tasks.filter(task => {
       const matchesSearch = 
         task.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.TaskDescription.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.Property.PropertyAbbreviation.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.Staff.some(s => s.Name.toLowerCase().includes(searchTerm.toLowerCase()));
+        (task.TaskDescription?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (task.Property?.PropertyAbbreviation?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (task.Staff?.some(s => s.Name.toLowerCase().includes(searchTerm.toLowerCase())) || false);
       
       const matchesStatus = 
         filterStatus === 'all' ||
@@ -65,8 +66,8 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
       
       switch (sortField) {
         case 'TaskID':
-          aValue = a.TaskID;
-          bValue = b.TaskID;
+          aValue = String(a.TaskID);
+          bValue = String(b.TaskID);
           break;
         case 'TaskName':
           aValue = a.TaskName;
@@ -77,8 +78,8 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
           bValue = b.CompleteConfirmedDate || '';
           break;
         case 'PropertyAbbreviation':
-          aValue = a.Property.PropertyAbbreviation;
-          bValue = b.Property.PropertyAbbreviation;
+          aValue = a.Property?.PropertyAbbreviation || '';
+          bValue = b.Property?.PropertyAbbreviation || '';
           break;
         default:
           return 0;
@@ -92,12 +93,19 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
     return filtered;
   }, [tasks, searchTerm, sortField, sortDirection, filterStatus]);
 
-  // Group tasks by staff name
+  const totalPages = Math.ceil(filteredAndSortedTasks.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedTasks = filteredAndSortedTasks.slice(startIndex, endIndex);
+
+  // Group paginated tasks by staff name
   const groupedTasks = useMemo(() => {
     const groups: Record<string, Task[]> = {};
     
-    filteredAndSortedTasks.forEach(task => {
-      const staffNames = task.Staff.map(s => s.Name).join(', ') || 'Unassigned';
+    paginatedTasks.forEach(task => {
+      const staffNames = (task.Staff && task.Staff.length > 0) 
+        ? task.Staff.map(s => s.Name).join(', ') 
+        : 'Unassigned';
       if (!groups[staffNames]) {
         groups[staffNames] = [];
       }
@@ -105,12 +113,7 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
     });
     
     return groups;
-  }, [filteredAndSortedTasks]);
-
-  const totalPages = Math.ceil(filteredAndSortedTasks.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedTasks = filteredAndSortedTasks.slice(startIndex, endIndex);
+  }, [paginatedTasks]);
 
   const SortButton = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <Button
@@ -227,7 +230,7 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
                         </td>
                       </tr>
                       {/* Tasks for this staff */}
-                      {staffTasks.slice(startIndex, endIndex).map((task) => (
+                      {staffTasks.map((task) => (
                         <tr 
                           key={task.TaskID} 
                           className="border-b hover-elevate"
@@ -236,10 +239,14 @@ export default function TaskTable({ tasks, isLoading = false }: TaskTableProps) 
                           <td className="p-4 font-mono text-sm">{task.TaskID}</td>
                           <td className="p-4 font-medium">{task.TaskName}</td>
                           <td className="p-4 text-sm text-muted-foreground max-w-xs truncate">
-                            {task.TaskDescription}
+                            {task.TaskDescription || "—"}
                           </td>
                           <td className="p-4">
-                            <Badge variant="outline">{task.Property.PropertyAbbreviation}</Badge>
+                            {task.Property?.PropertyAbbreviation ? (
+                              <Badge variant="outline">{task.Property.PropertyAbbreviation}</Badge>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="p-4">
                             <Badge 
