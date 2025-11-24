@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
 
 export const opertoSettingsSchema = z.object({
   apiKey: z.string().min(1, "API Key is required"),
@@ -50,13 +52,40 @@ export const opertoAuthResponseSchema = z.object({
   Access_Token: z.object({
     token: z.string(),
     Created: z.string().optional(),
-    Expiry: z.number().optional(),
+    Expiry: z.coerce.number().optional(),
   }),
   Refresh_Token: z.object({
     token: z.string(),
     Created: z.string().optional(),
-    Expiry: z.number().optional(),
+    Expiry: z.coerce.number().optional(),
   }).optional(),
 });
 
 export type OpertoAuthResponse = z.infer<typeof opertoAuthResponseSchema>;
+
+export const settings = pgTable("settings", {
+  id: integer("id").primaryKey().default(1),
+  apiKey: text("api_key").notNull(),
+  apiValue: text("api_value").notNull(),
+  completed: text("completed"),
+  taskStartDate: text("task_start_date"),
+  taskEndDate: text("task_end_date"),
+  perPage: integer("per_page"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
+export type InsertSettings = z.infer<typeof insertSettingsSchema>;
+export type SelectSettings = typeof settings.$inferSelect;
+
+export const tokens = pgTable("tokens", {
+  id: integer("id").primaryKey().default(1),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTokensSchema = createInsertSchema(tokens).omit({ id: true, updatedAt: true });
+export type InsertTokens = z.infer<typeof insertTokensSchema>;
+export type SelectTokens = typeof tokens.$inferSelect;
