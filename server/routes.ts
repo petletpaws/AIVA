@@ -64,7 +64,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       const authData = opertoAuthResponseSchema.parse(response.data);
-      await storage.saveAccessToken(authData.access_token);
+      await storage.saveAccessToken(authData.Access_Token.token);
 
       res.json({ 
         success: true, 
@@ -107,7 +107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           );
           const authData = opertoAuthResponseSchema.parse(authResponse.data);
-          accessToken = authData.access_token;
+          accessToken = authData.Access_Token.token;
           await storage.saveAccessToken(accessToken);
         } catch (authError: any) {
           console.error("Auto-auth error:", authError.response?.data || authError.message);
@@ -139,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const response = await axios.get(`${OPERTO_BASE_URL}/tasks`, {
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `VRS ${accessToken}`,
               "Content-Type": "application/json",
             },
             params: {

@@ -47,9 +47,16 @@ export const opertoTasksResponseSchema = z.object({
 export type OpertoTasksResponse = z.infer<typeof opertoTasksResponseSchema>;
 
 export const opertoAuthResponseSchema = z.object({
-  access_token: z.string(),
-  refresh_token: z.string().optional(),
-  expires_in: z.number().optional(),
+  Access_Token: z.object({
+    token: z.string(),
+    Created: z.string().optional(),
+    Expiry: z.number().optional(),
+  }),
+  Refresh_Token: z.object({
+    token: z.string(),
+    Created: z.string().optional(),
+    Expiry: z.number().optional(),
+  }).optional(),
 });
 
 export type OpertoAuthResponse = z.infer<typeof opertoAuthResponseSchema>;
