@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { format, parseISO } from 'date-fns';
 
 interface Task {
   TaskID: string | number;
@@ -257,7 +258,15 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                             </Badge>
                           </td>
                           <td className="p-4 text-sm text-muted-foreground">
-                            {task.CompleteConfirmedDate || "—"}
+                            {task.CompleteConfirmedDate ? (() => {
+                              try {
+                                const dateStr = task.CompleteConfirmedDate.replace(' ', 'T');
+                                const date = parseISO(dateStr);
+                                return isNaN(date.getTime()) ? "—" : format(date, 'dd MMM yyyy');
+                              } catch {
+                                return "—";
+                              }
+                            })() : "—"}
                           </td>
                         </tr>
                       ))}
