@@ -16,7 +16,7 @@ interface ApiSettings {
 }
 
 interface QueryParams {
-  completed?: boolean;
+  completed?: string;
   taskStartDate?: string;
   taskEndDate?: string;
   perPage: number;
@@ -189,11 +189,11 @@ export default function SettingsPanel({
             <div className="space-y-2">
               <Label htmlFor="completed-filter">Completion Status</Label>
               <Select 
-                value={params.completed === undefined ? 'all' : params.completed ? 'true' : 'false'}
+                value={params.completed === undefined ? 'all' : params.completed}
                 onValueChange={(value) => {
                   setParams(prev => ({
                     ...prev,
-                    completed: value === 'all' ? undefined : value === 'true'
+                    completed: value === 'all' ? undefined : value
                   }));
                 }}
               >
@@ -202,8 +202,8 @@ export default function SettingsPanel({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Tasks</SelectItem>
-                  <SelectItem value="true">Completed Only</SelectItem>
-                  <SelectItem value="false">Incomplete Only</SelectItem>
+                  <SelectItem value="1">Completed Only</SelectItem>
+                  <SelectItem value="0">Incomplete Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
