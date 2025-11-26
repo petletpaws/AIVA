@@ -210,7 +210,7 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                     <th className="text-left p-4">
                       <SortButton field="CompleteConfirmedDate">Status</SortButton>
                     </th>
-                    <th className="text-left p-4">Completed Date</th>
+                    <th className="text-left p-4 text-[12px]">Completed Date</th>
                   </tr>
                 </thead>
                 <tbody>
