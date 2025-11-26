@@ -137,3 +137,22 @@ Preferred communication style: Simple, everyday language.
 - Vite dev server with HMR in development
 - Static asset serving in production
 - Server-side rendering disabled (SPA mode)
+
+## Invoice and Email Feature
+
+**Invoice Generation**
+- Invoices are automatically grouped by staff member from task data
+- Each invoice shows all tasks assigned to a staff member with amounts
+- Invoice preview available before sending
+- Total amount calculated per staff member
+
+**Email Integration**
+- Uses Resend API for sending invoice emails
+- Requires `RESEND_API_KEY` environment variable to be set
+- HTML-formatted invoices with task details and totals
+- API endpoint: `POST /api/invoices/send`
+
+**To enable email sending:**
+1. Sign up at https://resend.com
+2. Get your API key from the dashboard
+3. Add `RESEND_API_KEY` as a secret in Replit
