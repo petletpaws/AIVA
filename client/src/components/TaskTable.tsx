@@ -182,7 +182,6 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
           </div>
         </CardContent>
       </Card>
-
       {/* Tasks Table */}
       <Card>
         <CardHeader>
@@ -204,7 +203,7 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                     <th className="text-left p-4">
                       <SortButton field="TaskName">Task Name</SortButton>
                     </th>
-                    <th className="text-left p-4">Description</th>
+                    <th className="text-left p-4 text-[12px]">Description</th>
                     <th className="text-left p-4">
                       <SortButton field="PropertyAbbreviation">Property</SortButton>
                     </th>
