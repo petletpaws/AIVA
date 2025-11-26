@@ -90,3 +90,23 @@ export const tokens = pgTable("tokens", {
 export const insertTokensSchema = createInsertSchema(tokens).omit({ id: true, updatedAt: true });
 export type InsertTokens = z.infer<typeof insertTokensSchema>;
 export type SelectTokens = typeof tokens.$inferSelect;
+
+export const invoiceSchema = z.object({
+  id: z.string(),
+  staffName: z.string(),
+  staffEmail: z.string().optional(),
+  tasks: z.array(opertoTaskSchema),
+  totalAmount: z.number(),
+  createdAt: z.string(),
+});
+
+export type Invoice = z.infer<typeof invoiceSchema>;
+
+export const sendInvoiceRequestSchema = z.object({
+  recipientEmail: z.string().email("Valid email required"),
+  staffName: z.string(),
+  tasks: z.array(opertoTaskSchema),
+  totalAmount: z.number(),
+});
+
+export type SendInvoiceRequest = z.infer<typeof sendInvoiceRequestSchema>;

@@ -1,11 +1,11 @@
-import { Moon, Sun, Settings, Database, AlertTriangle } from 'lucide-react';
+import { Moon, Sun, Settings, Database, AlertTriangle, FileTextIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useState, useEffect } from 'react';
 
 interface HeaderProps {
-  onNavigate?: (view: 'tasks' | 'settings') => void;
-  currentView?: 'tasks' | 'settings';
+  onNavigate?: (view: 'tasks' | 'settings' | 'invoices') => void;
+  currentView?: 'tasks' | 'settings' | 'invoices';
   connectionStatus?: 'connected' | 'disconnected' | 'error';
   taskCount?: number;
 }
@@ -39,7 +39,7 @@ export default function Header({
     console.log('Theme toggled to:', newIsDark ? 'dark' : 'light');
   };
 
-  const handleNavigation = (view: 'tasks' | 'settings') => {
+  const handleNavigation = (view: 'tasks' | 'settings' | 'invoices') => {
     console.log('Navigating to:', view);
     onNavigate?.(view);
   };
@@ -96,6 +96,16 @@ export default function Header({
                     {taskCount}
                   </Badge>
                 )}
+              </Button>
+              <Button
+                variant={currentView === 'invoices' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => handleNavigation('invoices')}
+                className="flex items-center gap-2"
+                data-testid="button-nav-invoices"
+              >
+                <FileTextIcon className="h-4 w-4" />
+                Invoices
               </Button>
               <Button
                 variant={currentView === 'settings' ? 'default' : 'ghost'}
