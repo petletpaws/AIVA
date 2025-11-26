@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,13 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedInvoice && !emailDialogOpen && previewRef.current) {
+      previewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedInvoice, emailDialogOpen]);
 
   const staffInvoices = useMemo(() => {
     const invoiceMap: Record<string, StaffInvoice> = {};
@@ -197,7 +204,7 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
       </Card>
 
       {selectedInvoice && !emailDialogOpen && (
-        <Card>
+        <Card ref={previewRef}>
           <CardHeader>
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
