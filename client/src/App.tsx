@@ -100,6 +100,15 @@ function AppContent() {
 
   const handleSaveQueryParams = async (params: QueryParams) => {
     try {
+      if (!apiSettings.apiKey.trim() || !apiSettings.apiValue.trim()) {
+        toast({
+          title: "API Settings Required",
+          description: "Please save your API Key and API Value first before saving query parameters.",
+          variant: "destructive"
+        });
+        return;
+      }
+
       const payload = {
         apiKey: apiSettings.apiKey,
         apiValue: apiSettings.apiValue,
