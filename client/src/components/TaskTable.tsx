@@ -18,6 +18,7 @@ interface Task {
   Staff?: Array<{
     Name: string;
   }>;
+  Amount?: number | null;
 }
 
 interface TaskTableProps {
@@ -26,7 +27,7 @@ interface TaskTableProps {
   onRefresh?: () => void;
 }
 
-type SortField = 'TaskID' | 'TaskName' | 'CompleteConfirmedDate' | 'PropertyAbbreviation';
+type SortField = 'TaskID' | 'TaskName' | 'CompleteConfirmedDate' | 'PropertyAbbreviation' | 'Amount';
 type SortDirection = 'asc' | 'desc';
 
 export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskTableProps) {
@@ -81,6 +82,10 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
         case 'PropertyAbbreviation':
           aValue = a.Property?.PropertyAbbreviation || '';
           bValue = b.Property?.PropertyAbbreviation || '';
+          break;
+        case 'Amount':
+          aValue = a.Amount ?? 0;
+          bValue = b.Amount ?? 0;
           break;
         default:
           return 0;
@@ -211,6 +216,9 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                       <SortButton field="CompleteConfirmedDate">Status</SortButton>
                     </th>
                     <th className="text-left p-4 text-[12px]">Completed Date</th>
+                    <th className="text-right p-4">
+                      <SortButton field="Amount">Amount</SortButton>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -218,7 +226,7 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                     <React.Fragment key={staffName}>
                       {/* Staff Group Header */}
                       <tr className="bg-accent/30 border-b">
-                        <td colSpan={6} className="p-4">
+                        <td colSpan={7} className="p-4">
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary" className="font-medium">
                               {staffName}
@@ -266,6 +274,9 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
                                 return "—";
                               }
                             })() : "—"}
+                          </td>
+                          <td className="p-4 text-right font-medium" data-testid={`amount-task-${task.TaskID}`}>
+                            {task.Amount != null ? `$${task.Amount.toFixed(2)}` : "—"}
                           </td>
                         </tr>
                       ))}

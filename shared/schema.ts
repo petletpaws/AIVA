@@ -36,6 +36,7 @@ export const opertoTaskSchema = z.object({
   CompleteConfirmedDate: z.string().nullable(),
   Property: opertoPropertySchema.optional(),
   Staff: z.array(opertoStaffSchema).optional(),
+  Amount: z.number().nullable().optional(),
 });
 
 export type OpertoTask = z.infer<typeof opertoTaskSchema>;
