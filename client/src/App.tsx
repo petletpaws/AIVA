@@ -29,6 +29,7 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<{ type: 'auth' | 'network' | 'api' | 'general'; message?: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
