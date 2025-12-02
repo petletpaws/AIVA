@@ -29,7 +29,6 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<{ type: 'auth' | 'network' | 'api' | 'general'; message?: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -64,7 +63,6 @@ function AppContent() {
   };
 
   const handleSaveSettings = async (settings: ApiSettings) => {
-    setIsSavingSettings(true);
     try {
       const payload = {
         apiKey: settings.apiKey,
@@ -97,8 +95,6 @@ function AppContent() {
         description: err.message || "Failed to save settings",
         variant: "destructive"
       });
-    } finally {
-      setIsSavingSettings(false);
     }
   };
 
@@ -264,7 +260,6 @@ function AppContent() {
           onSaveQueryParams={handleSaveQueryParams}
           onTestConnection={handleTestConnection}
           isTestingConnection={isTestingConnection}
-          isSavingSettings={isSavingSettings}
           connectionStatus={connectionStatus === 'connected' ? 'success' : connectionStatus === 'error' ? 'error' : 'idle'}
         />
       );
