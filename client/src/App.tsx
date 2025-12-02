@@ -64,6 +64,7 @@ function AppContent() {
   };
 
   const handleSaveSettings = async (settings: ApiSettings) => {
+    setIsSavingSettings(true);
     try {
       const payload = {
         apiKey: settings.apiKey,
@@ -96,6 +97,8 @@ function AppContent() {
         description: err.message || "Failed to save settings",
         variant: "destructive"
       });
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -261,6 +264,7 @@ function AppContent() {
           onSaveQueryParams={handleSaveQueryParams}
           onTestConnection={handleTestConnection}
           isTestingConnection={isTestingConnection}
+          isSavingSettings={isSavingSettings}
           connectionStatus={connectionStatus === 'connected' ? 'success' : connectionStatus === 'error' ? 'error' : 'idle'}
         />
       );

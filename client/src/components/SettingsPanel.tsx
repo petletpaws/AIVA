@@ -29,6 +29,7 @@ interface SettingsPanelProps {
   onSaveQueryParams?: (params: QueryParams) => void;
   onTestConnection?: () => void;
   isTestingConnection?: boolean;
+  isSavingSettings?: boolean;
   connectionStatus?: 'success' | 'error' | 'idle';
 }
 
@@ -39,6 +40,7 @@ export default function SettingsPanel({
   onSaveQueryParams,
   onTestConnection,
   isTestingConnection = false,
+  isSavingSettings = false,
   connectionStatus = 'idle'
 }: SettingsPanelProps) {
   const [apiSettings, setApiSettings] = useState<ApiSettings>(settings);
@@ -153,12 +155,12 @@ export default function SettingsPanel({
           <div className="flex gap-2 pt-2">
             <Button 
               onClick={handleSaveSettings}
-              disabled={!isValidSettings}
+              disabled={!isValidSettings || isSavingSettings}
               className="flex items-center gap-2"
               data-testid="button-save-settings"
             >
               <Save className="h-4 w-4" />
-              Save Settings
+              {isSavingSettings ? 'Saving...' : 'Save Settings'}
             </Button>
             <Button 
               variant="outline"
