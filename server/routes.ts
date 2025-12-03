@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import axios from "axios";
+import { Resend } from 'resend';
 import {
   opertoSettingsSchema,
   opertoAuthResponseSchema,
@@ -12,6 +13,49 @@ import {
 } from "@shared/schema";
 
 const OPERTO_BASE_URL = "https://teams-api.operto.com/api/v1";
+
+// Resend Integration - Get credentials from Replit connection
+let connectionSettings: any;
+
+async function getResendCredentials() {
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  const xReplitToken = process.env.REPL_IDENTITY 
+    ? 'repl ' + process.env.REPL_IDENTITY 
+    : process.env.WEB_REPL_RENEWAL 
+    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
+    : null;
+
+  if (!xReplitToken) {
+    throw new Error('Replit token not found');
+  }
+
+  connectionSettings = await fetch(
+    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
+    {
+      headers: {
+        'Accept': 'application/json',
+        'X_REPLIT_TOKEN': xReplitToken
+      }
+    }
+  ).then(res => res.json()).then(data => data.items?.[0]);
+
+  if (!connectionSettings || !connectionSettings.settings?.api_key) {
+    throw new Error('Resend not connected. Please configure the Resend integration.');
+  }
+  
+  return {
+    apiKey: connectionSettings.settings.api_key, 
+    fromEmail: connectionSettings.settings.from_email
+  };
+}
+
+async function getResendClient() {
+  const { apiKey, fromEmail } = await getResendCredentials();
+  return {
+    client: new Resend(apiKey),
+    fromEmail: fromEmail || 'Operto Task Manager <onboarding@resend.dev>'
+  };
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/settings", async (req, res) => {
@@ -203,12 +247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const invoiceData = sendInvoiceRequestSchema.parse(req.body);
       
-      const resendApiKey = process.env.RESEND_API_KEY;
-      if (!resendApiKey) {
-        return res.status(500).json({ 
-          error: "Email service not configured. Please add RESEND_API_KEY to your environment." 
-        });
-      }
+      const { client: resend, fromEmail } = await getResendClient();
 
       const taskRows = invoiceData.tasks.map(task => `
         <tr>
@@ -268,29 +307,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         </html>
       `;
 
-      const response = await axios.post(
-        'https://api.resend.com/emails',
-        {
-          from: 'Operto Task Manager <onboarding@resend.dev>',
-          to: [invoiceData.recipientEmail],
-          subject: `Invoice for ${invoiceData.staffName} - ${invoiceData.tasks.length} Tasks`,
-          html: emailHtml,
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const { data, error } = await resend.emails.send({
+        from: fromEmail,
+        to: [invoiceData.recipientEmail],
+        subject: `Invoice for ${invoiceData.staffName} - ${invoiceData.tasks.length} Tasks`,
+        html: emailHtml,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
 
       res.json({ 
         success: true, 
         message: `Invoice sent to ${invoiceData.recipientEmail}`,
-        emailId: response.data.id
+        emailId: data?.id
       });
     } catch (error: any) {
-      console.error("Invoice send error:", error.response?.data || error.message);
+      console.error("Invoice send error:", error.message);
       
       if (error.name === 'ZodError') {
         return res.status(400).json({ 
@@ -300,7 +334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.status(500).json({ 
-        error: error.response?.data?.message || "Failed to send invoice. Please try again." 
+        error: error.message || "Failed to send invoice. Please try again." 
       });
     }
   });
