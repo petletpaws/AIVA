@@ -249,12 +249,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const { client: resend, fromEmail } = await getResendClient();
 
+      const formatDate = (dateStr: string | null) => {
+        if (!dateStr) return '—';
+        try {
+          return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        } catch {
+          return '—';
+        }
+      };
+
       const taskRows = invoiceData.tasks.map(task => `
         <tr>
-          <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-size: 12px;">${task.TaskID}</td>
           <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${task.TaskName}</td>
           <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${task.Property?.PropertyAbbreviation || '—'}</td>
-          <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${task.CompleteConfirmedDate ? 'Completed' : 'Pending'}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${formatDate(task.CompleteConfirmedDate)}</td>
           <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: right; font-weight: 500;">${task.Amount != null ? `$${task.Amount.toFixed(2)}` : '—'}</td>
         </tr>
       `).join('');
@@ -281,10 +289,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
               <thead>
                 <tr style="background-color: #f9fafb;">
-                  <th style="padding: 12px; text-align: left; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Task ID</th>
                   <th style="padding: 12px; text-align: left; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Task Name</th>
                   <th style="padding: 12px; text-align: left; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Property</th>
-                  <th style="padding: 12px; text-align: left; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Status</th>
+                  <th style="padding: 12px; text-align: left; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Completed</th>
                   <th style="padding: 12px; text-align: right; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 2px solid #e5e7eb;">Amount</th>
                 </tr>
               </thead>
@@ -293,7 +300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="4" style="padding: 16px 12px; text-align: right; font-weight: 600; font-size: 16px; color: #111827;">Total:</td>
+                  <td colspan="3" style="padding: 16px 12px; text-align: right; font-weight: 600; font-size: 16px; color: #111827;">Total:</td>
                   <td style="padding: 16px 12px; text-align: right; font-weight: 700; font-size: 20px; color: #111827;">$${invoiceData.totalAmount.toFixed(2)}</td>
                 </tr>
               </tfoot>
