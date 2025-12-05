@@ -180,6 +180,14 @@ Preferred communication style: Simple, everyday language.
 - `GET /api/files` - List all uploaded files
 - `DELETE /api/files/:fileId` - Remove uploaded file
 
+**Extracted Text Verification**
+- View the full raw text extracted from uploaded files
+- Helps verify if extraction quality meets expectations
+- Copy extracted text to clipboard
+- Download extracted text as .txt file
+- Reprocess files to re-run AI extraction
+- Shows AI-extracted data summary (staff name, amount, date, property)
+
 ## Staff Task Grouping
 
 **Task Table Grouping**
