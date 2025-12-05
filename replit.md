@@ -158,11 +158,32 @@ Preferred communication style: Simple, everyday language.
 - Drag-and-drop or browse to upload contractor invoices
 - Supported formats: PDF, Word (.doc, .docx), Images (.png, .jpg, .gif), Text (.txt)
 - Files stored in `/uploads` directory on server
+- Optional "handwritten mode" for cursive/handwritten documents
+
+**Enhanced OCR Processing**
+- Image preprocessing pipeline using Sharp library:
+  - Grayscale conversion for cleaner text detection
+  - Contrast normalization and sharpening
+  - Adaptive thresholding for better text/background separation
+  - Automatic upscaling of small images (2x-3x for images under 1500px)
+  - Special preprocessing mode for handwritten/cursive text
+- Post-OCR character correction for common misreads:
+  - Numeric context: 5↔S, 1↔/|lI, 0↔oO, 8↔B/S, 6↔b, 9↔g, 2↔z
+  - Applied contextually (numbers vs text)
+- Multi-format date parsing:
+  - European formats: d/m/yy, dd/mm/yyyy, dd.mm.yyyy
+  - US formats: mm/dd/yyyy
+  - ISO format: yyyy-mm-dd
+  - Partial dates: d/m (assumes current year)
+  - Written dates: "7 Sep 2025", "Sep 7, 2025"
+  - 2-digit year normalization (00-50 = 20xx, 51-99 = 19xx)
+- OCR utilities module: `server/ocr-utils.ts`
 
 **AI Extraction**
 - Uses OpenAI GPT-5 model for intelligent invoice data extraction
 - Extracts: staff name, total amount, date, property name, line items
-- Fallback to basic regex extraction if OpenAI unavailable
+- Enhanced with pre-extracted OCR hints for better accuracy
+- Fallback to enhanced rule-based extraction if OpenAI unavailable
 - Requires `OPENAI_API_KEY` environment variable
 
 **Invoice Matching**
