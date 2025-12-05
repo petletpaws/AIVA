@@ -562,6 +562,7 @@ Respond with JSON in this exact format:
       propertyName: result.propertyName || null,
       lineItems: result.lineItems || [],
       rawText: text.substring(0, 500),
+      rawTextFull: text,
     };
   } catch (error: any) {
     console.error("AI extraction error:", error);
@@ -581,6 +582,7 @@ function basicExtraction(text: string): ExtractedInvoiceData {
     propertyName: null,
     lineItems: [],
     rawText: text.substring(0, 500),
+    rawTextFull: text,
   };
 }
 

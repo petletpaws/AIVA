@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, FileText, Loader2, CheckCircle, AlertCircle, HelpCircle, Trash2 } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle, AlertCircle, HelpCircle, Trash2, Eye, RefreshCw } from 'lucide-react';
 import type { Task } from '@/components/TaskTable';
 import type { UploadedFile, MatchStatus } from '@shared/schema';
+import ExtractedTextDialog from './ExtractedTextDialog';
 
 interface FilesPanelProps {
   tasks: Task[];
@@ -17,6 +18,9 @@ export default function FilesPanel({ tasks }: FilesPanelProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
+  const [isTextDialogOpen, setIsTextDialogOpen] = useState(false);
+  const [reprocessingFileId, setReprocessingFileId] = useState<string | null>(null);
 
   const loadExistingFiles = async () => {
     try {
@@ -162,6 +166,45 @@ export default function FilesPanel({ tasks }: FilesPanelProps) {
         description: error.message,
         variant: "destructive",
       });
+    }
+  };
+
+  const viewExtractedText = (file: UploadedFile) => {
+    setSelectedFile(file);
+    setIsTextDialogOpen(true);
+  };
+
+  const reprocessFile = async (fileId: string) => {
+    setReprocessingFileId(fileId);
+    try {
+      const response = await fetch(`/api/files/${fileId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Reprocessing failed');
+      }
+
+      const processedFile: UploadedFile = await response.json();
+      setUploadedFiles(prev => 
+        prev.map(f => f.id === fileId ? processedFile : f)
+      );
+
+      toast({
+        title: "Reprocessing Complete",
+        description: "The file has been reprocessed with AI.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Reprocessing Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setReprocessingFileId(null);
     }
   };
 
@@ -316,15 +359,47 @@ export default function FilesPanel({ tasks }: FilesPanelProps) {
                       )}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteFile(file.id)}
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    data-testid={`button-delete-file-${file.id}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {file.extractedData && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => viewExtractedText(file)}
+                        className="text-muted-foreground"
+                        title="View extracted text"
+                        data-testid={`button-view-text-${file.id}`}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {file.matchStatus !== 'pending' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => reprocessFile(file.id)}
+                        disabled={reprocessingFileId === file.id}
+                        className="text-muted-foreground"
+                        title="Reprocess file"
+                        data-testid={`button-reprocess-file-${file.id}`}
+                      >
+                        {reprocessingFileId === file.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteFile(file.id)}
+                      className="text-muted-foreground"
+                      title="Delete file"
+                      data-testid={`button-delete-file-${file.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -341,6 +416,12 @@ export default function FilesPanel({ tasks }: FilesPanelProps) {
           </CardContent>
         </Card>
       )}
+
+      <ExtractedTextDialog
+        file={selectedFile}
+        open={isTextDialogOpen}
+        onOpenChange={setIsTextDialogOpen}
+      />
     </div>
   );
 }

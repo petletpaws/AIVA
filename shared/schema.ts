@@ -121,6 +121,7 @@ export const extractedInvoiceDataSchema = z.object({
     amount: z.number().nullable(),
   })).optional(),
   rawText: z.string().optional(),
+  rawTextFull: z.string().optional(),
 });
 
 export type ExtractedInvoiceData = z.infer<typeof extractedInvoiceDataSchema>;
