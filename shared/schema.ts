@@ -110,3 +110,34 @@ export const sendInvoiceRequestSchema = z.object({
 });
 
 export type SendInvoiceRequest = z.infer<typeof sendInvoiceRequestSchema>;
+
+export const extractedInvoiceDataSchema = z.object({
+  staffName: z.string().nullable(),
+  totalAmount: z.number().nullable(),
+  date: z.string().nullable(),
+  propertyName: z.string().nullable(),
+  lineItems: z.array(z.object({
+    description: z.string(),
+    amount: z.number().nullable(),
+  })).optional(),
+  rawText: z.string().optional(),
+});
+
+export type ExtractedInvoiceData = z.infer<typeof extractedInvoiceDataSchema>;
+
+export type MatchStatus = 'full_match' | 'partial_match' | 'no_match' | 'pending';
+
+export const uploadedFileSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  originalName: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+  uploadedAt: z.string(),
+  extractedData: extractedInvoiceDataSchema.nullable(),
+  matchStatus: z.enum(['full_match', 'partial_match', 'no_match', 'pending']),
+  matchedStaffName: z.string().nullable(),
+  matchDetails: z.string().nullable(),
+});
+
+export type UploadedFile = z.infer<typeof uploadedFileSchema>;

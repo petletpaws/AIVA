@@ -104,18 +104,27 @@ export default function TaskTable({ tasks, isLoading = false, onRefresh }: TaskT
   const endIndex = startIndex + itemsPerPage;
   const paginatedTasks = filteredAndSortedTasks.slice(startIndex, endIndex);
 
-  // Group paginated tasks by staff name
+  // Group paginated tasks by staff name - tasks with multiple staff appear in each staff's group
   const groupedTasks = useMemo(() => {
     const groups: Record<string, Task[]> = {};
     
     paginatedTasks.forEach(task => {
-      const staffNames = (task.Staff && task.Staff.length > 0) 
-        ? task.Staff.map(s => s.Name).join(', ') 
-        : 'Unassigned';
-      if (!groups[staffNames]) {
-        groups[staffNames] = [];
+      if (task.Staff && task.Staff.length > 0) {
+        // Add task to each individual staff member's group
+        task.Staff.forEach(staff => {
+          const staffName = staff.Name;
+          if (!groups[staffName]) {
+            groups[staffName] = [];
+          }
+          groups[staffName].push(task);
+        });
+      } else {
+        // Task has no staff assigned
+        if (!groups['Unassigned']) {
+          groups['Unassigned'] = [];
+        }
+        groups['Unassigned'].push(task);
       }
-      groups[staffNames].push(task);
     });
     
     return groups;

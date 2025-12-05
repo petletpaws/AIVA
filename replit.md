@@ -148,11 +148,41 @@ Preferred communication style: Simple, everyday language.
 
 **Email Integration**
 - Uses Resend API for sending invoice emails
-- Requires `RESEND_API_KEY` environment variable to be set
+- Requires Resend integration to be configured via Replit
 - HTML-formatted invoices with task details and totals
 - API endpoint: `POST /api/invoices/send`
 
-**To enable email sending:**
-1. Sign up at https://resend.com
-2. Get your API key from the dashboard
-3. Add `RESEND_API_KEY` as a secret in Replit
+## AI-Powered Invoice Verification (Files Feature)
+
+**File Upload**
+- Drag-and-drop or browse to upload contractor invoices
+- Supported formats: PDF, Word (.doc, .docx), Images (.png, .jpg, .gif), Text (.txt)
+- Files stored in `/uploads` directory on server
+
+**AI Extraction**
+- Uses OpenAI GPT-5 model for intelligent invoice data extraction
+- Extracts: staff name, total amount, date, property name, line items
+- Fallback to basic regex extraction if OpenAI unavailable
+- Requires `OPENAI_API_KEY` environment variable
+
+**Invoice Matching**
+- Compares uploaded invoice data against system-generated invoices
+- Matches by staff name (exact, partial, or name parts)
+- Matches by amount when staff name cannot be determined
+- Three-tier visual indicators:
+  - Green (Verified): Full match on staff name and amount
+  - Orange (Needs Review): Partial match requiring verification
+  - Red (No Match): No matching invoice found in system
+
+**API Endpoints**
+- `POST /api/files/upload` - Upload file for processing
+- `POST /api/files/:fileId/process` - Extract and match invoice data
+- `GET /api/files` - List all uploaded files
+- `DELETE /api/files/:fileId` - Remove uploaded file
+
+## Staff Task Grouping
+
+**Task Table Grouping**
+- Tasks are grouped by individual staff members
+- Tasks with multiple staff assigned appear in each staff member's group separately
+- Enables accurate per-person task tracking and invoicing

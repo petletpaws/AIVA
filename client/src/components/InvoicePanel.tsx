@@ -5,10 +5,11 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { FileTextIcon, SendIcon, MailIcon, UserIcon, CalendarIcon, DollarSignIcon, CheckCircleIcon } from 'lucide-react';
+import { FileTextIcon, SendIcon, MailIcon, UserIcon, CalendarIcon, CheckCircle, AlertCircle, HelpCircle, Upload } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import type { Task } from './TaskTable';
+import type { UploadedFile, MatchStatus } from '@shared/schema';
 
 interface InvoicePanelProps {
   tasks: Task[];
@@ -19,6 +20,8 @@ interface StaffInvoice {
   staffEmail?: string;
   tasks: Task[];
   totalAmount: number;
+  matchStatus?: MatchStatus;
+  matchDetails?: string | null;
 }
 
 export default function InvoicePanel({ tasks }: InvoicePanelProps) {
@@ -27,6 +30,7 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,6 +38,33 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
       previewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [selectedInvoice, emailDialogOpen]);
+
+  useEffect(() => {
+    const fetchUploadedFiles = async () => {
+      try {
+        const response = await fetch('/api/files');
+        if (response.ok) {
+          const files = await response.json();
+          setUploadedFiles(files);
+        }
+      } catch (error) {
+        console.error('Failed to fetch uploaded files:', error);
+      }
+    };
+    fetchUploadedFiles();
+    const interval = setInterval(fetchUploadedFiles, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getMatchStatusForStaff = (staffName: string): { status?: MatchStatus; details?: string | null } => {
+    const matchingFile = uploadedFiles.find(
+      file => file.matchedStaffName?.toLowerCase() === staffName.toLowerCase()
+    );
+    if (matchingFile) {
+      return { status: matchingFile.matchStatus, details: matchingFile.matchDetails };
+    }
+    return {};
+  };
 
   const staffInvoices = useMemo(() => {
     const invoiceMap: Record<string, StaffInvoice> = {};
@@ -46,11 +77,14 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
       staffMembers.forEach(staff => {
         const staffName = staff.Name;
         if (!invoiceMap[staffName]) {
+          const matchInfo = getMatchStatusForStaff(staffName);
           invoiceMap[staffName] = {
             staffName,
             staffEmail: (staff as any).Email,
             tasks: [],
             totalAmount: 0,
+            matchStatus: matchInfo.status,
+            matchDetails: matchInfo.details,
           };
         }
         invoiceMap[staffName].tasks.push(task);
@@ -59,7 +93,37 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
     });
 
     return Object.values(invoiceMap).sort((a, b) => a.staffName.localeCompare(b.staffName));
-  }, [tasks]);
+  }, [tasks, uploadedFiles]);
+
+  const getMatchStatusBadge = (status?: MatchStatus) => {
+    if (!status) return null;
+    
+    switch (status) {
+      case 'full_match':
+        return (
+          <Badge className="bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Verified
+          </Badge>
+        );
+      case 'partial_match':
+        return (
+          <Badge className="bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            Needs Review
+          </Badge>
+        );
+      case 'no_match':
+        return (
+          <Badge className="bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30">
+            <HelpCircle className="h-3 w-3 mr-1" />
+            No Match
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
 
   const handleOpenEmailDialog = (invoice: StaffInvoice) => {
     setSelectedInvoice(invoice);
@@ -158,10 +222,18 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
                       <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                       <CardTitle className="text-base truncate">{invoice.staffName}</CardTitle>
                     </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {invoice.tasks.length} tasks
-                    </Badge>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {getMatchStatusBadge(invoice.matchStatus)}
+                      <Badge variant="secondary">
+                        {invoice.tasks.length} tasks
+                      </Badge>
+                    </div>
                   </div>
+                  {invoice.matchDetails && (
+                    <p className="text-xs text-muted-foreground mt-1 italic">
+                      {invoice.matchDetails}
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="pb-2">
                   <div className="space-y-2">

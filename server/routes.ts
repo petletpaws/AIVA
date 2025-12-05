@@ -3,6 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import axios from "axios";
 import { Resend } from 'resend';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import OpenAI from 'openai';
+import * as pdfParse from 'pdf-parse';
+import * as mammoth from 'mammoth';
+import * as Tesseract from 'tesseract.js';
 import {
   opertoSettingsSchema,
   opertoAuthResponseSchema,
@@ -10,9 +17,49 @@ import {
   sendInvoiceRequestSchema,
   type OpertoTask,
   type OpertoSettings,
+  type UploadedFile,
+  type ExtractedInvoiceData,
+  type MatchStatus,
 } from "@shared/schema";
 
 const OPERTO_BASE_URL = "https://teams-api.operto.com/api/v1";
+
+// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'text/plain'
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type'));
+    }
+  }
+});
+
+const uploadedFiles: Map<string, UploadedFile> = new Map();
 
 // Resend Integration - Get credentials from Replit connection
 let connectionSettings: any;
@@ -346,6 +393,296 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // File upload endpoint
+  app.post("/api/files/upload", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const fileId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+      
+      const uploadedFile: UploadedFile = {
+        id: fileId,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        uploadedAt: new Date().toISOString(),
+        extractedData: null,
+        matchStatus: 'pending',
+        matchedStaffName: null,
+        matchDetails: null,
+      };
+
+      uploadedFiles.set(fileId, uploadedFile);
+      res.json(uploadedFile);
+    } catch (error: any) {
+      console.error("File upload error:", error);
+      res.status(500).json({ error: error.message || "Upload failed" });
+    }
+  });
+
+  // Process file with AI
+  app.post("/api/files/:fileId/process", async (req, res) => {
+    try {
+      const { fileId } = req.params;
+      const { tasks } = req.body as { tasks: OpertoTask[] };
+
+      const uploadedFile = uploadedFiles.get(fileId);
+      if (!uploadedFile) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const filePath = path.join(uploadDir, uploadedFile.filename);
+      
+      // Extract text from file based on type
+      let textContent = '';
+      
+      if (uploadedFile.mimeType === 'application/pdf') {
+        const dataBuffer = fs.readFileSync(filePath);
+        const pdfParser = (pdfParse as any).default || pdfParse;
+        const pdfData = await pdfParser(dataBuffer);
+        textContent = pdfData.text;
+      } else if (uploadedFile.mimeType.includes('word') || uploadedFile.mimeType === 'application/msword') {
+        const result = await mammoth.extractRawText({ path: filePath });
+        textContent = result.value;
+      } else if (uploadedFile.mimeType.startsWith('image/')) {
+        const tesseractLib = (Tesseract as any).default || Tesseract;
+        const result = await tesseractLib.recognize(filePath, 'eng');
+        textContent = result.data.text;
+      } else if (uploadedFile.mimeType === 'text/plain') {
+        textContent = fs.readFileSync(filePath, 'utf-8');
+      }
+
+      // Use OpenAI to extract invoice data
+      const extractedData = await extractInvoiceDataWithAI(textContent);
+      
+      // Match against system invoices
+      const matchResult = matchInvoiceWithTasks(extractedData, tasks);
+
+      const updatedFile: UploadedFile = {
+        ...uploadedFile,
+        extractedData,
+        matchStatus: matchResult.status,
+        matchedStaffName: matchResult.matchedStaffName,
+        matchDetails: matchResult.details,
+      };
+
+      uploadedFiles.set(fileId, updatedFile);
+      res.json(updatedFile);
+    } catch (error: any) {
+      console.error("File processing error:", error);
+      res.status(500).json({ error: error.message || "Processing failed" });
+    }
+  });
+
+  // Delete file
+  app.delete("/api/files/:fileId", async (req, res) => {
+    try {
+      const { fileId } = req.params;
+      const uploadedFile = uploadedFiles.get(fileId);
+      
+      if (!uploadedFile) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const filePath = path.join(uploadDir, uploadedFile.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+
+      uploadedFiles.delete(fileId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("File delete error:", error);
+      res.status(500).json({ error: error.message || "Delete failed" });
+    }
+  });
+
+  // Get all uploaded files
+  app.get("/api/files", async (_req, res) => {
+    try {
+      const files = Array.from(uploadedFiles.values());
+      res.json(files);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// AI-powered invoice data extraction
+async function extractInvoiceDataWithAI(text: string): Promise<ExtractedInvoiceData> {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn("OpenAI API key not configured, using basic extraction");
+      return basicExtraction(text);
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5",
+      messages: [
+        {
+          role: "system",
+          content: `You are an invoice data extraction expert. Extract the following information from the invoice text:
+- staffName: The name of the contractor/staff member
+- totalAmount: The total amount/sum on the invoice (as a number, without currency symbols)
+- date: The invoice date in YYYY-MM-DD format
+- propertyName: Any property name or address mentioned
+- lineItems: Array of individual line items with description and amount
+
+Respond with JSON in this exact format:
+{
+  "staffName": "string or null",
+  "totalAmount": "number or null",
+  "date": "string or null",
+  "propertyName": "string or null",
+  "lineItems": [{"description": "string", "amount": "number or null"}]
+}`
+        },
+        {
+          role: "user",
+          content: text || "No text content available"
+        }
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 1024,
+    });
+
+    const result = JSON.parse(response.choices[0].message.content || '{}');
+    
+    return {
+      staffName: result.staffName || null,
+      totalAmount: typeof result.totalAmount === 'number' ? result.totalAmount : null,
+      date: result.date || null,
+      propertyName: result.propertyName || null,
+      lineItems: result.lineItems || [],
+      rawText: text.substring(0, 500),
+    };
+  } catch (error: any) {
+    console.error("AI extraction error:", error);
+    return basicExtraction(text);
+  }
+}
+
+// Fallback basic text extraction
+function basicExtraction(text: string): ExtractedInvoiceData {
+  const amountMatch = text.match(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/);
+  const dateMatch = text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
+  
+  return {
+    staffName: null,
+    totalAmount: amountMatch ? parseFloat(amountMatch[1].replace(',', '')) : null,
+    date: dateMatch ? dateMatch[1] : null,
+    propertyName: null,
+    lineItems: [],
+    rawText: text.substring(0, 500),
+  };
+}
+
+// Match extracted invoice data against system tasks
+function matchInvoiceWithTasks(
+  extractedData: ExtractedInvoiceData,
+  tasks: OpertoTask[]
+): { status: MatchStatus; matchedStaffName: string | null; details: string } {
+  if (!extractedData || tasks.length === 0) {
+    return { status: 'no_match', matchedStaffName: null, details: 'No data to match against' };
+  }
+
+  // Group tasks by staff
+  const staffGroups: Record<string, { tasks: OpertoTask[]; total: number }> = {};
+  
+  for (const task of tasks) {
+    if (task.Staff && task.Staff.length > 0) {
+      for (const staff of task.Staff) {
+        if (!staffGroups[staff.Name]) {
+          staffGroups[staff.Name] = { tasks: [], total: 0 };
+        }
+        staffGroups[staff.Name].tasks.push(task);
+        staffGroups[staff.Name].total += task.Amount || 0;
+      }
+    }
+  }
+
+  // Try to match by staff name first
+  let bestMatch: { staffName: string; score: number; total: number } | null = null;
+  
+  if (extractedData.staffName) {
+    const extractedName = extractedData.staffName.toLowerCase();
+    
+    for (const [staffName, data] of Object.entries(staffGroups)) {
+      const nameLower = staffName.toLowerCase();
+      
+      // Exact match
+      if (nameLower === extractedName) {
+        bestMatch = { staffName, score: 100, total: data.total };
+        break;
+      }
+      
+      // Partial match (contains)
+      if (nameLower.includes(extractedName) || extractedName.includes(nameLower)) {
+        const score = 70;
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { staffName, score, total: data.total };
+        }
+      }
+      
+      // Check individual name parts
+      const extractedParts = extractedName.split(/\s+/);
+      const nameParts = nameLower.split(/\s+/);
+      const matchingParts = extractedParts.filter(p => nameParts.some(np => np.includes(p) || p.includes(np)));
+      
+      if (matchingParts.length > 0) {
+        const score = (matchingParts.length / Math.max(extractedParts.length, nameParts.length)) * 60;
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { staffName, score, total: data.total };
+        }
+      }
+    }
+  }
+
+  // Determine match status
+  if (bestMatch) {
+    const amountMatch = extractedData.totalAmount !== null && 
+      Math.abs(bestMatch.total - extractedData.totalAmount) < 0.01;
+    
+    if (bestMatch.score >= 70 && amountMatch) {
+      return {
+        status: 'full_match',
+        matchedStaffName: bestMatch.staffName,
+        details: `Matched to ${bestMatch.staffName} with amount $${bestMatch.total.toFixed(2)}`,
+      };
+    } else if (bestMatch.score >= 50) {
+      const amountDiff = extractedData.totalAmount !== null 
+        ? `(Invoice: $${extractedData.totalAmount.toFixed(2)}, System: $${bestMatch.total.toFixed(2)})`
+        : '';
+      return {
+        status: 'partial_match',
+        matchedStaffName: bestMatch.staffName,
+        details: `Possible match to ${bestMatch.staffName} ${amountDiff}. Please verify.`,
+      };
+    }
+  }
+
+  // Try to match by amount only
+  if (extractedData.totalAmount !== null) {
+    for (const [staffName, data] of Object.entries(staffGroups)) {
+      if (Math.abs(data.total - extractedData.totalAmount) < 0.01) {
+        return {
+          status: 'partial_match',
+          matchedStaffName: staffName,
+          details: `Amount matches ${staffName}'s total ($${data.total.toFixed(2)}). Staff name could not be verified.`,
+        };
+      }
+    }
+  }
+
+  return {
+    status: 'no_match',
+    matchedStaffName: null,
+    details: 'No matching staff or amount found in system invoices.',
+  };
 }

@@ -9,9 +9,10 @@ import TaskTable, { Task } from '@/components/TaskTable';
 import SettingsPanel, { ApiSettings, QueryParams } from '@/components/SettingsPanel';
 import ErrorDisplay from '@/components/ErrorDisplay';
 import InvoicePanel from '@/components/InvoicePanel';
+import FilesPanel from '@/components/FilesPanel';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'error';
-type ViewType = 'tasks' | 'settings' | 'invoices';
+type ViewType = 'tasks' | 'settings' | 'invoices' | 'files';
 
 function AppContent() {
   const { toast } = useToast();
@@ -308,6 +309,10 @@ function AppContent() {
 
     if (currentView === 'invoices') {
       return <InvoicePanel tasks={tasks} />;
+    }
+
+    if (currentView === 'files') {
+      return <FilesPanel tasks={tasks} />;
     }
 
     return null;
