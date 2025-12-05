@@ -11,6 +11,14 @@ import { PDFParse } from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as Tesseract from 'tesseract.js';
 import {
+  enhancedExtractFromImage,
+  applyCharacterCorrections,
+  extractDates,
+  extractAmounts,
+  extractNames,
+  cleanupProcessedFiles,
+} from './ocr-utils';
+import {
   opertoSettingsSchema,
   opertoAuthResponseSchema,
   opertoTasksResponseSchema,
@@ -439,25 +447,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract text from file based on type
       let textContent = '';
       
+      // Check if handwritten mode is requested
+      const isHandwritten = req.body.isHandwritten === true || req.body.isHandwritten === 'true';
+      
+      // Enhanced extraction results for structured data
+      let enhancedResults: {
+        dates: { dateStr: string; isoDate: string; confidence: number }[];
+        amounts: { amount: number; original: string; confidence: number }[];
+        names: { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[];
+        ocrConfidence: number;
+      } | null = null;
+      
       if (uploadedFile.mimeType === 'application/pdf') {
         const dataBuffer = fs.readFileSync(filePath);
         const parser = new PDFParse({ data: dataBuffer });
         const pdfData = await parser.getText();
         textContent = pdfData.text;
         await parser.destroy();
+        
+        // Apply character corrections to PDF text
+        textContent = applyCharacterCorrections(textContent);
+        
+        // Extract structured data from corrected text
+        enhancedResults = {
+          dates: extractDates(textContent),
+          amounts: extractAmounts(textContent),
+          names: extractNames(textContent),
+          ocrConfidence: 95, // PDF text is typically reliable
+        };
       } else if (uploadedFile.mimeType.includes('word') || uploadedFile.mimeType === 'application/msword') {
         const result = await mammoth.extractRawText({ path: filePath });
         textContent = result.value;
+        
+        // Apply character corrections
+        textContent = applyCharacterCorrections(textContent);
+        
+        enhancedResults = {
+          dates: extractDates(textContent),
+          amounts: extractAmounts(textContent),
+          names: extractNames(textContent),
+          ocrConfidence: 95,
+        };
       } else if (uploadedFile.mimeType.startsWith('image/')) {
-        const tesseractLib = (Tesseract as any).default || Tesseract;
-        const result = await tesseractLib.recognize(filePath, 'eng');
-        textContent = result.data.text;
+        // Use enhanced OCR with preprocessing and character correction
+        const ocrResult = await enhancedExtractFromImage(filePath, isHandwritten);
+        textContent = ocrResult.correctedText;
+        
+        enhancedResults = {
+          dates: ocrResult.dates,
+          amounts: ocrResult.amounts,
+          names: ocrResult.names,
+          ocrConfidence: ocrResult.ocrConfidence,
+        };
+        
+        console.log('Enhanced OCR Results:', {
+          rawTextLength: ocrResult.rawText.length,
+          correctedTextLength: ocrResult.correctedText.length,
+          datesFound: ocrResult.dates.length,
+          amountsFound: ocrResult.amounts.length,
+          namesFound: ocrResult.names.length,
+          confidence: ocrResult.ocrConfidence,
+        });
       } else if (uploadedFile.mimeType === 'text/plain') {
         textContent = fs.readFileSync(filePath, 'utf-8');
+        textContent = applyCharacterCorrections(textContent);
+        
+        enhancedResults = {
+          dates: extractDates(textContent),
+          amounts: extractAmounts(textContent),
+          names: extractNames(textContent),
+          ocrConfidence: 100,
+        };
       }
 
-      // Use OpenAI to extract invoice data
-      const extractedData = await extractInvoiceDataWithAI(textContent);
+      // Use OpenAI to extract invoice data, enhanced with pre-extracted structured data
+      const extractedData = await extractInvoiceDataWithAI(textContent, enhancedResults);
       
       // Match against system invoices
       const matchResult = matchInvoiceWithTasks(extractedData, tasks);
@@ -515,12 +579,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-// AI-powered invoice data extraction
-async function extractInvoiceDataWithAI(text: string): Promise<ExtractedInvoiceData> {
+// AI-powered invoice data extraction with enhanced OCR results
+async function extractInvoiceDataWithAI(
+  text: string,
+  enhancedResults?: {
+    dates: { dateStr: string; isoDate: string; confidence: number }[];
+    amounts: { amount: number; original: string; confidence: number }[];
+    names: { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[];
+    ocrConfidence: number;
+  } | null
+): Promise<ExtractedInvoiceData> {
   try {
+    // Build hints from enhanced OCR results
+    let extractionHints = '';
+    if (enhancedResults) {
+      const hints: string[] = [];
+      
+      if (enhancedResults.dates.length > 0) {
+        const topDates = enhancedResults.dates.slice(0, 3);
+        hints.push(`Detected dates: ${topDates.map(d => `${d.isoDate} (from "${d.dateStr}")`).join(', ')}`);
+      }
+      
+      if (enhancedResults.amounts.length > 0) {
+        const topAmounts = enhancedResults.amounts.slice(0, 5);
+        hints.push(`Detected amounts: ${topAmounts.map(a => `$${a.amount} (from "${a.original}")`).join(', ')}`);
+      }
+      
+      if (enhancedResults.names.length > 0) {
+        const staffNames = enhancedResults.names.filter(n => n.type === 'staff').slice(0, 3);
+        const propertyNames = enhancedResults.names.filter(n => n.type === 'property').slice(0, 3);
+        
+        if (staffNames.length > 0) {
+          hints.push(`Possible staff names: ${staffNames.map(n => n.name).join(', ')}`);
+        }
+        if (propertyNames.length > 0) {
+          hints.push(`Possible property/address: ${propertyNames.map(n => n.name).join(', ')}`);
+        }
+      }
+      
+      if (hints.length > 0) {
+        extractionHints = `\n\nPRE-EXTRACTED DATA HINTS (use these to help validate your extraction):\n${hints.join('\n')}`;
+      }
+    }
+    
     if (!process.env.OPENAI_API_KEY) {
-      console.warn("OpenAI API key not configured, using basic extraction");
-      return basicExtraction(text);
+      console.warn("OpenAI API key not configured, using enhanced basic extraction");
+      return enhancedBasicExtraction(text, enhancedResults);
     }
 
     const response = await openai.chat.completions.create({
@@ -528,25 +632,35 @@ async function extractInvoiceDataWithAI(text: string): Promise<ExtractedInvoiceD
       messages: [
         {
           role: "system",
-          content: `You are an invoice data extraction expert. Extract the following information from the invoice text:
-- staffName: The name of the contractor/staff member
-- totalAmount: The total amount/sum on the invoice (as a number, without currency symbols)
-- date: The invoice date in YYYY-MM-DD format
-- propertyName: Any property name or address mentioned
+          content: `You are an invoice data extraction expert specializing in handwritten and scanned documents. Extract the following information from the invoice text:
+- staffName: The name of the contractor/staff member (look for names near "From:", "By:", "Contractor:", or at the top of the document)
+- totalAmount: The total amount/sum on the invoice (as a number, without currency symbols). Look for the largest amount or amounts near "Total", "Sum", "Amount Due"
+- date: The invoice date in YYYY-MM-DD format. Handle various date formats:
+  * d/m/yy or dd/mm/yy (European): 7/9/25 means 2025-09-07
+  * d.m.yyyy: 02.09.2025 means 2025-09-02
+  * d/m without year: 25/8 means current year, August 25
+  * Written: "Sep 7, 2025" or "7 Sep 2025"
+- propertyName: Any property name, unit number, or address mentioned
 - lineItems: Array of individual line items with description and amount
+
+Common OCR misreads to consider:
+- "S" or "s" may be "5" in numbers
+- "O" or "o" may be "0" in numbers
+- "l" or "I" or "|" may be "1" in numbers
+- "B" may be "8" in numbers
 
 Respond with JSON in this exact format:
 {
   "staffName": "string or null",
   "totalAmount": "number or null",
-  "date": "string or null",
+  "date": "string or null (YYYY-MM-DD format)",
   "propertyName": "string or null",
   "lineItems": [{"description": "string", "amount": "number or null"}]
 }`
         },
         {
           role: "user",
-          content: text || "No text content available"
+          content: (text || "No text content available") + extractionHints
         }
       ],
       response_format: { type: "json_object" },
@@ -555,22 +669,49 @@ Respond with JSON in this exact format:
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
     
+    // Use AI result but fall back to enhanced extraction if AI returns null
+    let staffName = result.staffName || null;
+    let totalAmount = typeof result.totalAmount === 'number' ? result.totalAmount : null;
+    let date = result.date || null;
+    let propertyName = result.propertyName || null;
+    
+    // Fill in from enhanced results if AI missed them
+    if (enhancedResults) {
+      if (!staffName && enhancedResults.names.length > 0) {
+        const staffCandidate = enhancedResults.names.find(n => n.type === 'staff');
+        if (staffCandidate) staffName = staffCandidate.name;
+      }
+      
+      if (totalAmount === null && enhancedResults.amounts.length > 0) {
+        totalAmount = enhancedResults.amounts[0].amount;
+      }
+      
+      if (!date && enhancedResults.dates.length > 0) {
+        date = enhancedResults.dates[0].isoDate;
+      }
+      
+      if (!propertyName && enhancedResults.names.length > 0) {
+        const propCandidate = enhancedResults.names.find(n => n.type === 'property');
+        if (propCandidate) propertyName = propCandidate.name;
+      }
+    }
+    
     return {
-      staffName: result.staffName || null,
-      totalAmount: typeof result.totalAmount === 'number' ? result.totalAmount : null,
-      date: result.date || null,
-      propertyName: result.propertyName || null,
+      staffName,
+      totalAmount,
+      date,
+      propertyName,
       lineItems: result.lineItems || [],
       rawText: text.substring(0, 500),
       rawTextFull: text,
     };
   } catch (error: any) {
     console.error("AI extraction error:", error);
-    return basicExtraction(text);
+    return enhancedBasicExtraction(text, enhancedResults);
   }
 }
 
-// Fallback basic text extraction
+// Fallback basic text extraction (legacy)
 function basicExtraction(text: string): ExtractedInvoiceData {
   const amountMatch = text.match(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/);
   const dateMatch = text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
@@ -580,6 +721,63 @@ function basicExtraction(text: string): ExtractedInvoiceData {
     totalAmount: amountMatch ? parseFloat(amountMatch[1].replace(',', '')) : null,
     date: dateMatch ? dateMatch[1] : null,
     propertyName: null,
+    lineItems: [],
+    rawText: text.substring(0, 500),
+    rawTextFull: text,
+  };
+}
+
+// Enhanced basic text extraction using pre-extracted OCR data
+function enhancedBasicExtraction(
+  text: string,
+  enhancedResults?: {
+    dates: { dateStr: string; isoDate: string; confidence: number }[];
+    amounts: { amount: number; original: string; confidence: number }[];
+    names: { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[];
+    ocrConfidence: number;
+  } | null
+): ExtractedInvoiceData {
+  let staffName: string | null = null;
+  let totalAmount: number | null = null;
+  let date: string | null = null;
+  let propertyName: string | null = null;
+  
+  if (enhancedResults) {
+    // Get best staff name
+    const staffCandidate = enhancedResults.names.find(n => n.type === 'staff');
+    if (staffCandidate) staffName = staffCandidate.name;
+    
+    // Get largest/most confident amount
+    if (enhancedResults.amounts.length > 0) {
+      totalAmount = enhancedResults.amounts[0].amount;
+    }
+    
+    // Get best date
+    if (enhancedResults.dates.length > 0) {
+      date = enhancedResults.dates[0].isoDate;
+    }
+    
+    // Get property
+    const propCandidate = enhancedResults.names.find(n => n.type === 'property');
+    if (propCandidate) propertyName = propCandidate.name;
+  } else {
+    // Fallback to basic extraction
+    const amountMatch = text.match(/\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/);
+    const dateMatch = text.match(/(\d{1,2}[\/\-.\s]\d{1,2}[\/\-.\s]?\d{0,4})/);
+    
+    if (amountMatch) {
+      totalAmount = parseFloat(amountMatch[1].replace(',', ''));
+    }
+    if (dateMatch) {
+      date = dateMatch[1];
+    }
+  }
+  
+  return {
+    staffName,
+    totalAmount,
+    date,
+    propertyName,
     lineItems: [],
     rawText: text.substring(0, 500),
     rawTextFull: text,
