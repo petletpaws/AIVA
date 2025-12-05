@@ -7,7 +7,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import OpenAI from 'openai';
-import * as pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as Tesseract from 'tesseract.js';
 import {
@@ -441,9 +441,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (uploadedFile.mimeType === 'application/pdf') {
         const dataBuffer = fs.readFileSync(filePath);
-        const pdfParser = (pdfParse as any).default || pdfParse;
-        const pdfData = await pdfParser(dataBuffer);
+        const parser = new PDFParse({ data: dataBuffer });
+        const pdfData = await parser.getText();
         textContent = pdfData.text;
+        await parser.destroy();
       } else if (uploadedFile.mimeType.includes('word') || uploadedFile.mimeType === 'application/msword') {
         const result = await mammoth.extractRawText({ path: filePath });
         textContent = result.value;
