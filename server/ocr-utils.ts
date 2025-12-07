@@ -2,6 +2,13 @@ import sharp from 'sharp';
 import * as Tesseract from 'tesseract.js';
 import fs from 'fs';
 import path from 'path';
+import OpenAI from 'openai';
+
+// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Confidence threshold below which we use Vision API fallback
+const VISION_FALLBACK_THRESHOLD = 60;
 
 // Common OCR misread corrections
 const CHARACTER_CORRECTIONS: Record<string, { pattern: RegExp; context: 'numeric' | 'alpha' | 'any' }[]> = {
@@ -251,6 +258,69 @@ export async function performOCR(imagePath: string, isHandwritten: boolean = fal
   }
 }
 
+// OpenAI Vision API for text extraction - used as fallback for low-confidence Tesseract results
+export async function extractTextWithVision(imagePath: string): Promise<{
+  text: string;
+  confidence: number;
+}> {
+  try {
+    // Read image and convert to base64
+    const imageBuffer = fs.readFileSync(imagePath);
+    const base64Image = imageBuffer.toString('base64');
+    
+    // Determine MIME type from extension
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeType = ext === '.png' ? 'image/png' : 
+                     ext === '.gif' ? 'image/gif' : 
+                     ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    
+    // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+    const response = await openai.chat.completions.create({
+      model: "gpt-5",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert OCR system. Extract ALL text visible in the image exactly as it appears.
+Preserve:
+- Line breaks and spacing
+- Numbers, dates, and amounts exactly as written
+- Names, addresses, and any identifiable information
+- Any handwritten notes or annotations
+
+Output ONLY the extracted text, nothing else. Do not add any explanations or formatting.`
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${base64Image}`
+              }
+            },
+            {
+              type: "text",
+              text: "Extract all text from this image."
+            }
+          ],
+        },
+      ],
+    });
+
+    const extractedText = response.choices[0].message.content || '';
+    
+    console.log('Vision API extraction successful, text length:', extractedText.length);
+    
+    return {
+      text: extractedText,
+      confidence: 95 // Vision API generally has high accuracy
+    };
+  } catch (error) {
+    console.error('Vision API extraction failed:', error);
+    throw error;
+  }
+}
+
 // Apply OCR character corrections based on context
 export function applyCharacterCorrections(text: string): string {
   let correctedText = text;
@@ -472,24 +542,52 @@ export async function enhancedExtractFromImage(
   imagePath: string,
   isHandwritten: boolean = false
 ): Promise<EnhancedExtractionResult> {
-  // Perform OCR with preprocessing
+  // First, try Tesseract OCR with preprocessing
   const ocrResult = await performOCR(imagePath, isHandwritten);
   
+  let rawText = ocrResult.text;
+  let finalConfidence = ocrResult.confidence;
+  let usedVisionFallback = false;
+  
+  // If Tesseract confidence is below threshold, use Vision API as fallback
+  if (ocrResult.confidence < VISION_FALLBACK_THRESHOLD) {
+    console.log(`Tesseract confidence (${ocrResult.confidence}%) below threshold (${VISION_FALLBACK_THRESHOLD}%), using Vision API fallback...`);
+    
+    try {
+      const visionResult = await extractTextWithVision(imagePath);
+      
+      // Use Vision result if it extracted meaningful text
+      if (visionResult.text.trim().length > 0) {
+        rawText = visionResult.text;
+        finalConfidence = visionResult.confidence;
+        usedVisionFallback = true;
+        console.log('Vision API fallback successful, confidence:', visionResult.confidence);
+      }
+    } catch (visionError) {
+      console.error('Vision API fallback failed, using Tesseract result:', visionError);
+      // Continue with Tesseract result if Vision fails
+    }
+  }
+  
   // Apply character corrections
-  const correctedText = applyCharacterCorrections(ocrResult.text);
+  const correctedText = applyCharacterCorrections(rawText);
   
   // Extract structured data
   const dates = extractDates(correctedText);
   const amounts = extractAmounts(correctedText);
   const names = extractNames(correctedText);
   
+  if (usedVisionFallback) {
+    console.log('Final extraction used Vision API with corrected text length:', correctedText.length);
+  }
+  
   return {
-    rawText: ocrResult.text,
+    rawText,
     correctedText,
     dates,
     amounts,
     names,
-    ocrConfidence: ocrResult.confidence
+    ocrConfidence: finalConfidence
   };
 }
 
