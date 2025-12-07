@@ -321,43 +321,72 @@ Output ONLY the extracted text, nothing else. Do not add any explanations or for
   }
 }
 
-// Apply OCR character corrections based on context
+// Helper: Check if a token is predominantly numeric (more digits than letters)
+function isNumericContext(token: string): boolean {
+  const digits = (token.match(/\d/g) || []).length;
+  const letters = (token.match(/[a-zA-Z]/g) || []).length;
+  // Token is numeric if it has digits AND more digits than letters
+  return digits > 0 && digits >= letters;
+}
+
+// Helper: Fix characters within a clearly numeric token only
+function fixNumericToken(token: string): string {
+  // Only apply fixes if the token is predominantly numeric
+  if (!isNumericContext(token)) return token;
+  
+  let fixed = token;
+  fixed = fixed.replace(/[oO]/g, '0');
+  fixed = fixed.replace(/[lI|]/g, '1');
+  // Only convert S to 5 if surrounded by digits or at boundaries of numeric sequence
+  fixed = fixed.replace(/(?<=\d)[sS](?=\d)/g, '5');
+  fixed = fixed.replace(/^[sS](?=\d)/g, '5');
+  fixed = fixed.replace(/(?<=\d)[sS]$/g, '5');
+  return fixed;
+}
+
+// Apply OCR character corrections ONLY in clearly monetary/numeric contexts
+// This preserves words like "Staff", "Contractor", etc.
 export function applyCharacterCorrections(text: string): string {
   let correctedText = text;
   
-  // Fix common misreads in numeric contexts (amounts, dates)
-  // Pattern: Look for sequences that should be numbers
-  
-  // Fix amounts like "$1oo.oo" -> "$100.00" or "S100" -> "$100"
-  correctedText = correctedText.replace(/\$?[S5]?(\d*[oOlI|\d]+(?:[.,]\d{2})?)/g, (match) => {
-    let fixed = match;
-    // Replace letter-like chars in numeric context
+  // Fix monetary amounts: $1oo.oo -> $100.00
+  // Only fix when there's a clear $ symbol or the pattern looks like money
+  correctedText = correctedText.replace(/\$\s*([0-9oOlI|,]+(?:\.[0-9oOlI|]{1,2})?)/g, (match, amount) => {
+    let fixed = amount;
     fixed = fixed.replace(/[oO]/g, '0');
     fixed = fixed.replace(/[lI|]/g, '1');
-    fixed = fixed.replace(/^S(\d)/, '$$$1'); // S at start of number -> $
-    return fixed;
+    return '$' + fixed;
   });
   
-  // Fix dates - look for date-like patterns and correct them
-  correctedText = correctedText.replace(/(\d{1,2})[\/\.\-](\d{1,2})(?:[\/\.\-](\d{2,4}))?/g, (match, p1, p2, p3) => {
-    let day = p1.replace(/[oO]/g, '0').replace(/[lI|]/g, '1').replace(/[sS]/g, '5');
-    let month = p2.replace(/[oO]/g, '0').replace(/[lI|]/g, '1').replace(/[sS]/g, '5');
-    let year = p3 ? p3.replace(/[oO]/g, '0').replace(/[lI|]/g, '1').replace(/[sS]/g, '5') : '';
+  // Fix S followed immediately by digits (like S100 -> $100) - but NOT "Staff" or "Sep"
+  correctedText = correctedText.replace(/\bS(\d{2,}(?:\.\d{1,2})?)\b/g, (match, num) => {
+    return '$' + num;
+  });
+  
+  // Fix dates - be careful to only fix within the date pattern itself
+  correctedText = correctedText.replace(/\b(\d{1,2})[\/\.\-](\d{1,2})(?:[\/\.\-](\d{2,4}))?\b/g, (match, p1, p2, p3) => {
+    // Only fix if the components look numeric (contain at least one digit)
+    if (!/\d/.test(p1) || !/\d/.test(p2)) return match;
+    
+    let day = fixNumericToken(p1);
+    let month = fixNumericToken(p2);
+    let year = p3 ? fixNumericToken(p3) : '';
     
     const sep = match.includes('.') ? '.' : match.includes('-') ? '-' : '/';
     return year ? `${day}${sep}${month}${sep}${year}` : `${day}${sep}${month}`;
   });
   
-  // Fix standalone numbers that might have letter substitutions
-  correctedText = correctedText.replace(/\b(\d*[oOlIsS|\d]+)\b/g, (match) => {
-    // Only fix if there are actual number-like patterns
-    if (!/\d/.test(match)) return match;
+  // Fix purely numeric sequences (like phone numbers, IDs) but NOT mixed alphanumeric
+  // Pattern: sequences that are predominantly digits with occasional letter-misreads
+  correctedText = correctedText.replace(/\b(\d+[oOlI|sS]*\d*|\d*[oOlI|sS]+\d+)\b/g, (match) => {
+    // Count digits vs letters
+    const digitCount = (match.match(/\d/g) || []).length;
+    const letterCount = (match.match(/[a-zA-Z]/g) || []).length;
     
-    let fixed = match;
-    fixed = fixed.replace(/[oO]/g, '0');
-    fixed = fixed.replace(/[lI|]/g, '1');
-    fixed = fixed.replace(/[sS]/g, '5');
-    return fixed;
+    // Only fix if clearly numeric (at least 2 digits and more digits than letters)
+    if (digitCount < 2 || digitCount <= letterCount) return match;
+    
+    return fixNumericToken(match);
   });
   
   return correctedText;
@@ -463,22 +492,40 @@ export function extractAmounts(text: string): { amount: number; original: string
   return amounts.sort((a, b) => b.amount - a.amount);
 }
 
-// Extract staff/property names
+// Extract staff/property names - uses RAW text to preserve words like "Staff", "Contractor"
 export function extractNames(text: string): { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[] {
-  const correctedText = applyCharacterCorrections(text);
+  // Use raw text directly - DO NOT apply character corrections here
+  // Character corrections corrupt words like "Staff" -> "5taff"
   const names: { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[] = [];
   
-  // Staff name patterns
+  // Expanded staff name patterns - cover many common invoice formats
   const staffPatterns = [
-    /(?:from|by|contractor|staff|name|employee)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/gi,
-    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/g, // Capitalized multi-word names
+    // Explicit labels with name after colon/space
+    /(?:staff|contractor|technician|cleaner|worker|employee|performed\s+by|submitted\s+by|completed\s+by|from|by|name|invoice\s+from)[:\s]+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)/gi,
+    // Mr./Mrs./Ms. followed by name
+    /(?:Mr\.?|Mrs\.?|Ms\.?|Miss)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/g,
+    // Names at start of line after common labels
+    /^(?:Staff|Contractor|Cleaner|Technician)[:\s]+(.+?)$/gim,
+    // Two or three capitalized words (likely full name) - more specific pattern
+    /\b([A-Z][a-z]{2,15}\s+[A-Z][a-z]{2,15}(?:\s+[A-Z][a-z]{2,15})?)\b/g,
   ];
   
   // Property/address patterns
   const propertyPatterns = [
-    /(?:property|address|location|unit|apt|apartment)[:\s#]*([A-Z0-9][^\n,]{3,50})/gi,
-    /(\d+\s+[A-Z][a-z]+(?:\s+(?:St|Ave|Rd|Dr|Ln|Blvd|Way|Ct)\.?))/gi,
+    /(?:property|address|location|unit|apt|apartment|site)[:\s#]*([A-Z0-9][^\n,]{3,50})/gi,
+    /(\d+\s+[A-Z][a-z]+(?:\s+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Way|Ct|Court|Cres|Crescent)\.?))/gi,
   ];
+  
+  // Common words to exclude (not names)
+  const excludeWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'for', 'to', 'from', 'with', 'this', 'that',
+    'total', 'amount', 'invoice', 'date', 'due', 'payment', 'paid', 'balance',
+    'description', 'quantity', 'price', 'subtotal', 'tax', 'grand', 'thank', 'you',
+    'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+    'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+    'cleaning', 'service', 'services', 'maintenance', 'repair', 'job', 'work',
+    'please', 'note', 'notes', 'terms', 'conditions', 'unit'
+  ]);
   
   const seen = new Set<string>();
   
@@ -486,19 +533,43 @@ export function extractNames(text: string): { name: string; type: 'staff' | 'pro
   for (const pattern of staffPatterns) {
     pattern.lastIndex = 0;
     let match;
-    while ((match = pattern.exec(correctedText)) !== null) {
+    while ((match = pattern.exec(text)) !== null) {
       const name = (match[1] || match[0]).trim();
       const normalized = name.toLowerCase();
       
+      // Skip if too short, too long, or already seen
       if (name.length < 3 || name.length > 50) continue;
       if (seen.has(normalized)) continue;
-      if (/^(the|a|an|and|or|for|to|from|with)$/i.test(name)) continue;
+      
+      // Skip common words and phrases
+      const words = normalized.split(/\s+/);
+      if (words.some(w => excludeWords.has(w))) continue;
+      if (words.length === 1 && name.length < 4) continue; // Single short word
+      
+      // Skip if it looks like a date or number
+      if (/^\d/.test(name) || /\d{4}/.test(name)) continue;
       
       seen.add(normalized);
       
+      // Calculate confidence based on context clues
       let confidence = 50;
-      if (/from|by|contractor|staff|name/i.test(match[0])) confidence += 30;
-      if (/^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(name)) confidence += 15;
+      
+      // Higher confidence if preceded by explicit label
+      if (/staff|contractor|technician|cleaner|worker|employee|performed|submitted|completed/i.test(match[0])) {
+        confidence += 35;
+      } else if (/from|by|name/i.test(match[0])) {
+        confidence += 25;
+      }
+      
+      // Higher confidence for proper two-word names (First Last)
+      if (/^[A-Z][a-z]+\s+[A-Z][a-z]+$/.test(name)) {
+        confidence += 15;
+      }
+      
+      // Slight boost for title prefixes
+      if (/Mr|Mrs|Ms|Miss/i.test(match[0])) {
+        confidence += 10;
+      }
       
       names.push({ name, type: 'staff', confidence: Math.min(confidence, 100) });
     }
@@ -508,7 +579,7 @@ export function extractNames(text: string): { name: string; type: 'staff' | 'pro
   for (const pattern of propertyPatterns) {
     pattern.lastIndex = 0;
     let match;
-    while ((match = pattern.exec(correctedText)) !== null) {
+    while ((match = pattern.exec(text)) !== null) {
       const name = (match[1] || match[0]).trim();
       const normalized = name.toLowerCase();
       
@@ -518,8 +589,9 @@ export function extractNames(text: string): { name: string; type: 'staff' | 'pro
       seen.add(normalized);
       
       let confidence = 50;
-      if (/property|address|location/i.test(match[0])) confidence += 25;
+      if (/property|address|location|site/i.test(match[0])) confidence += 25;
       if (/\d+/.test(name)) confidence += 10;
+      if (/St|Street|Ave|Avenue|Rd|Road|Dr|Drive/i.test(name)) confidence += 15;
       
       names.push({ name, type: 'property', confidence: Math.min(confidence, 100) });
     }
@@ -569,13 +641,15 @@ export async function enhancedExtractFromImage(
     }
   }
   
-  // Apply character corrections
+  // Apply character corrections for numeric data only
   const correctedText = applyCharacterCorrections(rawText);
   
   // Extract structured data
+  // Dates and amounts use corrected text (for numeric fixes)
   const dates = extractDates(correctedText);
   const amounts = extractAmounts(correctedText);
-  const names = extractNames(correctedText);
+  // Names use RAW text to preserve words like "Staff", "Contractor"
+  const names = extractNames(rawText);
   
   if (usedVisionFallback) {
     console.log('Final extraction used Vision API with corrected text length:', correctedText.length);
