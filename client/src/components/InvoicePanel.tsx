@@ -328,7 +328,6 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2 font-medium">Task ID</th>
                       <th className="text-left py-2 font-medium">Task Name</th>
                       <th className="text-left py-2 font-medium">Property</th>
                       <th className="text-left py-2 font-medium">Status</th>
@@ -339,7 +338,6 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
                   <tbody>
                     {selectedInvoice.tasks.map((task) => (
                       <tr key={task.TaskID} className="border-b">
-                        <td className="py-2 font-mono text-xs">{task.TaskID}</td>
                         <td className="py-2">{task.TaskName}</td>
                         <td className="py-2">{task.Property?.PropertyAbbreviation || '—'}</td>
                         <td className="py-2">
@@ -361,7 +359,7 @@ export default function InvoicePanel({ tasks }: InvoicePanelProps) {
                   </tbody>
                   <tfoot>
                     <tr className="font-bold">
-                      <td colSpan={5} className="py-4 text-right">Total:</td>
+                      <td colSpan={4} className="py-4 text-right">Total:</td>
                       <td className="py-4 text-right text-lg">
                         ${selectedInvoice.totalAmount.toFixed(2)}
                       </td>
