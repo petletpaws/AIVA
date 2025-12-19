@@ -1,0 +1,13 @@
+INVOICE 8690
+19 December 2025
+
+Alexandra Smyth
+alexandraleighsmyth@gmail.com
+
+PetLet Standard Clean	        4C	$20	09 Dec 2025
+Gas Checking Every 2 weeks	40A	$20	16 Dec 2025
+PetLet Standard Clean   	40A	$20	16 Dec 2025
+PetLet Standard Clean	        40A	$20	12 Dec 2025
+PetLet Standard Clean   	22H	$20	11 Dec 2025
+
+Total:	$100.00

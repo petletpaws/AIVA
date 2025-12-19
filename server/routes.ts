@@ -7,7 +7,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import OpenAI from 'openai';
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as Tesseract from 'tesseract.js';
 import {
@@ -460,35 +460,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } | null = null;
       
       if (uploadedFile.mimeType === 'application/pdf') {
-        const dataBuffer = fs.readFileSync(filePath);
-        const parser = new PDFParse({ data: dataBuffer });
-        const pdfData = await parser.getText();
-        textContent = pdfData.text;
-        await parser.destroy();
-        
-        // Apply character corrections to PDF text
-        textContent = applyCharacterCorrections(textContent);
-        
-        // Extract structured data from corrected text
-        enhancedResults = {
-          dates: extractDates(textContent),
-          amounts: extractAmounts(textContent),
-          names: extractNames(textContent),
-          ocrConfidence: 95, // PDF text is typically reliable
-        };
+        try {
+          const dataBuffer = fs.readFileSync(filePath);
+          const pdfData = await pdfParse(dataBuffer);
+          textContent = pdfData.text;
+          
+          // Use comprehensive extraction for PDFs to capture all data
+          const allData = extractAllData(textContent);
+          
+          enhancedResults = {
+            dates: allData.dates,
+            amounts: allData.amounts,
+            names: allData.names,
+            ocrConfidence: 95, // PDF text is typically reliable
+          };
+          
+          console.log('PDF extraction results:', {
+            textLength: textContent.length,
+            datesFound: allData.dates.length,
+            amountsFound: allData.amounts.length,
+            namesFound: allData.names.length,
+            emailsFound: allData.emails.length,
+            phoneNumbersFound: allData.phoneNumbers.length,
+            addressesFound: allData.addresses.length,
+          });
+        } catch (pdfError: any) {
+          console.error('PDF extraction error:', pdfError);
+          throw new Error(`Failed to extract PDF: ${pdfError.message}`);
+        }
       } else if (uploadedFile.mimeType.includes('word') || uploadedFile.mimeType === 'application/msword') {
         const result = await mammoth.extractRawText({ path: filePath });
         textContent = result.value;
         
-        // Apply character corrections
-        textContent = applyCharacterCorrections(textContent);
+        // Use comprehensive extraction for Word documents
+        const allData = extractAllData(textContent);
         
         enhancedResults = {
-          dates: extractDates(textContent),
-          amounts: extractAmounts(textContent),
-          names: extractNames(textContent),
+          dates: allData.dates,
+          amounts: allData.amounts,
+          names: allData.names,
           ocrConfidence: 95,
         };
+        
+        console.log('Word document extraction results:', {
+          textLength: textContent.length,
+          datesFound: allData.dates.length,
+          amountsFound: allData.amounts.length,
+          namesFound: allData.names.length,
+          emailsFound: allData.emails.length,
+          phoneNumbersFound: allData.phoneNumbers.length,
+          addressesFound: allData.addresses.length,
+        });
       } else if (uploadedFile.mimeType.startsWith('image/')) {
         // Use enhanced OCR with preprocessing and character correction
         const ocrResult = await enhancedExtractFromImage(filePath, isHandwritten);
