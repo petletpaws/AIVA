@@ -9,9 +9,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, Download, FileText, Check, AlertTriangle } from 'lucide-react';
+import { Copy, Download, FileText, Check, AlertTriangle, Grid3x3, FileJson } from 'lucide-react';
 import type { UploadedFile } from '@shared/schema';
+import ExtractedDataVisualization from './ExtractedDataVisualization';
 
 interface ExtractedTextDialogProps {
   file: UploadedFile | null;
@@ -72,11 +74,11 @@ export default function ExtractedTextDialog({ file, open, onOpenChange }: Extrac
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Extracted Text
+            File Analysis
           </DialogTitle>
           <DialogDescription className="flex flex-col gap-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -91,81 +93,131 @@ export default function ExtractedTextDialog({ file, open, onOpenChange }: Extrac
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2 pb-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCopy}
-            disabled={!hasText}
-            data-testid="button-copy-extracted-text"
-          >
-            {copied ? (
-              <Check className="h-4 w-4 mr-2" />
+        <Tabs defaultValue="visualization" className="flex-1 flex flex-col min-h-0">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="visualization" className="flex items-center gap-2">
+              <Grid3x3 className="h-4 w-4" />
+              All Data
+            </TabsTrigger>
+            <TabsTrigger value="structured" className="flex items-center gap-2">
+              <FileJson className="h-4 w-4" />
+              Summary
+            </TabsTrigger>
+            <TabsTrigger value="text" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Raw Text
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="visualization" className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            {file.extractedData && file.extractedData.allExtractedData ? (
+              <ScrollArea className="flex-1">
+                <div className="p-4">
+                  <ExtractedDataVisualization data={file.extractedData} />
+                </div>
+              </ScrollArea>
             ) : (
-              <Copy className="h-4 w-4 mr-2" />
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                <AlertTriangle className="h-10 w-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground font-medium">No extracted data available</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Comprehensive data extraction was not performed on this file.
+                </p>
+              </div>
             )}
-            {copied ? 'Copied' : 'Copy Text'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownload}
-            disabled={!hasText}
-            data-testid="button-download-extracted-text"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Download .txt
-          </Button>
-        </div>
+          </TabsContent>
 
-        <div className="flex-1 min-h-0">
-          {hasText ? (
-            <ScrollArea className="h-[400px] rounded-md border bg-muted/30">
-              <pre
-                className="p-4 text-sm font-mono whitespace-pre-wrap break-words"
-                data-testid="text-extracted-content"
+          <TabsContent value="structured" className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            {file.extractedData ? (
+              <ScrollArea className="flex-1">
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg border bg-card">
+                      <p className="text-xs text-muted-foreground mb-1">Staff Name</p>
+                      <p className="font-semibold" data-testid="text-extracted-staff">
+                        {file.extractedData.staffName || '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-card">
+                      <p className="text-xs text-muted-foreground mb-1">Total Amount</p>
+                      <p className="font-semibold" data-testid="text-extracted-amount">
+                        {file.extractedData.totalAmount != null 
+                          ? `$${file.extractedData.totalAmount.toFixed(2)}` 
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-card">
+                      <p className="text-xs text-muted-foreground mb-1">Date</p>
+                      <p className="font-semibold" data-testid="text-extracted-date">
+                        {file.extractedData.date || '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-card">
+                      <p className="text-xs text-muted-foreground mb-1">Property</p>
+                      <p className="font-semibold" data-testid="text-extracted-property">
+                        {file.extractedData.propertyName || '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                <AlertTriangle className="h-10 w-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground font-medium">No structured data available</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="text" className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <div className="flex items-center gap-2 p-3 border-b">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopy}
+                disabled={!hasText}
+                data-testid="button-copy-extracted-text"
               >
-                {extractedText}
-              </pre>
-            </ScrollArea>
-          ) : (
-            <div className="h-[200px] flex flex-col items-center justify-center text-center p-6 rounded-md border bg-muted/30">
-              <AlertTriangle className="h-10 w-10 text-muted-foreground mb-3" />
-              <p className="text-muted-foreground font-medium">No text could be extracted</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                This could happen if the file is empty, corrupted, or the format is not supported.
-              </p>
+                {copied ? (
+                  <Check className="h-4 w-4 mr-2" />
+                ) : (
+                  <Copy className="h-4 w-4 mr-2" />
+                )}
+                {copied ? 'Copied' : 'Copy Text'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownload}
+                disabled={!hasText}
+                data-testid="button-download-extracted-text"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download .txt
+              </Button>
             </div>
-          )}
-        </div>
-
-        {file.extractedData && (
-          <div className="pt-4 border-t">
-            <p className="text-sm font-medium mb-2">AI Extracted Data:</p>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">Staff:</span>
-                <span data-testid="text-extracted-staff">{file.extractedData.staffName || 'Not detected'}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">Amount:</span>
-                <span data-testid="text-extracted-amount">
-                  {file.extractedData.totalAmount != null 
-                    ? `$${file.extractedData.totalAmount.toFixed(2)}` 
-                    : 'Not detected'}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">Date:</span>
-                <span data-testid="text-extracted-date">{file.extractedData.date || 'Not detected'}</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">Property:</span>
-                <span data-testid="text-extracted-property">{file.extractedData.propertyName || 'Not detected'}</span>
-              </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {hasText ? (
+                <ScrollArea className="h-full rounded-none border-0">
+                  <pre
+                    className="p-4 text-sm font-mono whitespace-pre-wrap break-words"
+                    data-testid="text-extracted-content"
+                  >
+                    {extractedText}
+                  </pre>
+                </ScrollArea>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6">
+                  <AlertTriangle className="h-10 w-10 text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground font-medium">No text could be extracted</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    This could happen if the file is empty, corrupted, or the format is not supported.
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
