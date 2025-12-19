@@ -122,6 +122,36 @@ export const extractedInvoiceDataSchema = z.object({
   })).optional(),
   rawText: z.string().optional(),
   rawTextFull: z.string().optional(),
+  allExtractedData: z.object({
+    dates: z.array(z.object({
+      dateStr: z.string(),
+      isoDate: z.string(),
+      confidence: z.number(),
+    })).optional(),
+    amounts: z.array(z.object({
+      amount: z.number(),
+      original: z.string(),
+      confidence: z.number(),
+    })).optional(),
+    names: z.array(z.object({
+      name: z.string(),
+      type: z.enum(['staff', 'property', 'unknown']),
+      confidence: z.number(),
+    })).optional(),
+    phoneNumbers: z.array(z.object({
+      number: z.string(),
+      confidence: z.number(),
+    })).optional(),
+    emails: z.array(z.object({
+      email: z.string(),
+      confidence: z.number(),
+    })).optional(),
+    addresses: z.array(z.object({
+      address: z.string(),
+      confidence: z.number(),
+    })).optional(),
+    fieldsSummary: z.record(z.unknown()).optional(),
+  }).optional(),
 });
 
 export type ExtractedInvoiceData = z.infer<typeof extractedInvoiceDataSchema>;

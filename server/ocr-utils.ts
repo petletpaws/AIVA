@@ -398,7 +398,21 @@ export function extractDates(text: string): { dateStr: string; isoDate: string; 
   const dates: { dateStr: string; isoDate: string; confidence: number }[] = [];
   const seen = new Set<string>();
   
-  for (const { pattern, parse } of DATE_PATTERNS) {
+  // Add additional date patterns for better .txt coverage
+  const additionalPatterns = [
+    // ISO format: 2025-09-07 or 2025/09/07
+    { pattern: /(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/g, parse: (m: RegExpExecArray) => ({ year: parseInt(m[1]), month: parseInt(m[2]), day: parseInt(m[3]) }) },
+    // Month name: September 7, 2025 or Sep 7 2025
+    { pattern: /(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/gi, parse: (m: RegExpExecArray) => {
+      const monthNames: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+      const month = monthNames[m[0].substring(0, 3).toLowerCase()] || 0;
+      return { year: parseInt(m[2]), month, day: parseInt(m[1]) };
+    } },
+  ];
+  
+  const allPatterns = [...DATE_PATTERNS, ...additionalPatterns];
+  
+  for (const { pattern, parse } of allPatterns) {
     // Reset pattern lastIndex
     pattern.lastIndex = 0;
     
@@ -447,38 +461,49 @@ export function extractDates(text: string): { dateStr: string; isoDate: string; 
   return dates.sort((a, b) => b.confidence - a.confidence);
 }
 
-// Extract amounts from text
+// Extract amounts from text with comprehensive pattern coverage
 export function extractAmounts(text: string): { amount: number; original: string; confidence: number }[] {
   const correctedText = applyCharacterCorrections(text);
   const amounts: { amount: number; original: string; confidence: number }[] = [];
   
-  // Pattern for money amounts
+  // Comprehensive pattern for money amounts with better coverage
   const amountPatterns = [
-    // $1,234.56 or $1234.56 or 1,234.56 or 1234.56
-    /\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/g,
-    // Total: $123 or Amount: 123.45
-    /(?:total|amount|sum|due|pay)[:\s]*\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    // Label-based amounts: Total: $123 or Amount: 123.45 or Sum: 100.50
+    /(?:total|amount|sum|due|pay|price|cost|fee|charge)[:\s]+\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/gi,
+    // Currency symbol first: $1,234.56 or $ 1234.56
+    /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/g,
+    // Decimal amounts: 1234.56 or 1,234.56
+    /\b(\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2})\b/g,
+    // Currency code amounts: USD 123 or £ 50
+    /(?:USD|AUD|GBP|EUR|£|\$)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/gi,
+    // Large round numbers likely to be amounts: 1000, 5000, 10000
+    /\b(\d{4,}(?:,\d{3})*(?:\.\d{2})?)\b/g,
   ];
   
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   
   for (const pattern of amountPatterns) {
     pattern.lastIndex = 0;
     let match;
     
     while ((match = pattern.exec(correctedText)) !== null) {
-      const numStr = (match[1] || match[0]).replace(/[$,\s]/g, '');
+      const numStr = (match[1] || match[0]).replace(/[$,£€USD AUDGBPEURa-z]/gi, '').trim();
       const amount = parseFloat(numStr);
       
       if (isNaN(amount) || amount <= 0) continue;
-      if (seen.has(amount)) continue;
-      seen.add(amount);
+      
+      // Deduplicate by amount value
+      const key = amount.toFixed(2);
+      if (seen.has(key)) continue;
+      seen.add(key);
       
       // Calculate confidence
-      let confidence = 60;
-      if (match[0].includes('$')) confidence += 20;
-      if (/total|amount|sum|due|pay/i.test(match[0])) confidence += 15;
+      let confidence = 50;
+      if (match[0].match(/^[^\d]*\d/)) confidence += 20; // Has label prefix
+      if (match[0].includes('$') || match[0].includes('£') || match[0].includes('€')) confidence += 25;
+      if (/total|amount|sum|due|pay|price|cost|fee|charge/i.test(match[0])) confidence += 20;
       if (match[0].includes('.')) confidence += 5;
+      if (amount >= 100) confidence += 5; // Likely to be real amount
       
       amounts.push({
         amount,
@@ -488,8 +513,90 @@ export function extractAmounts(text: string): { amount: number; original: string
     }
   }
   
-  // Sort by amount (larger amounts first, typically totals)
-  return amounts.sort((a, b) => b.amount - a.amount);
+  // Sort by confidence, then by amount (larger amounts first)
+  return amounts.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    return b.amount - a.amount;
+  });
+}
+
+// Extract all data from text for comprehensive representation
+export function extractAllData(text: string): {
+  dates: { dateStr: string; isoDate: string; confidence: number }[];
+  amounts: { amount: number; original: string; confidence: number }[];
+  names: { name: string; type: 'staff' | 'property' | 'unknown'; confidence: number }[];
+  phoneNumbers: { number: string; confidence: number }[];
+  emails: { email: string; confidence: number }[];
+  addresses: { address: string; confidence: number }[];
+  allFieldsFound: Record<string, unknown>;
+} {
+  const dates = extractDates(text);
+  const amounts = extractAmounts(text);
+  const names = extractNames(text);
+  
+  // Extract phone numbers
+  const phoneNumbers: { number: string; confidence: number }[] = [];
+  const phonePattern = /\b(?:\+?1[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}\b/g;
+  let phoneMatch;
+  const phoneSeen = new Set<string>();
+  while ((phoneMatch = phonePattern.exec(text)) !== null) {
+    const normalized = phoneMatch[0].replace(/[^\d]/g, '');
+    if (!phoneSeen.has(normalized)) {
+      phoneSeen.add(normalized);
+      phoneNumbers.push({
+        number: phoneMatch[0],
+        confidence: 90
+      });
+    }
+  }
+  
+  // Extract emails
+  const emails: { email: string; confidence: number }[] = [];
+  const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+  let emailMatch;
+  const emailSeen = new Set<string>();
+  while ((emailMatch = emailPattern.exec(text)) !== null) {
+    if (!emailSeen.has(emailMatch[0])) {
+      emailSeen.add(emailMatch[0]);
+      emails.push({
+        email: emailMatch[0],
+        confidence: 95
+      });
+    }
+  }
+  
+  // Extract addresses
+  const addresses: { address: string; confidence: number }[] = [];
+  const addressPattern = /(\d+\s+[A-Z][a-z]+(?:\s+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Way|Ct|Court|Cres|Crescent|Plaza|Park|Terrace|Hall|Gate|Court|Square|Close)\.?)?(?:\s+[A-Z][a-z]+)*(?:\s+[A-Z]{2}\s*\d{5})?)/gi;
+  let addressMatch;
+  const addressSeen = new Set<string>();
+  while ((addressMatch = addressPattern.exec(text)) !== null) {
+    const addr = addressMatch[0].trim();
+    if (!addressSeen.has(addr) && addr.length > 5) {
+      addressSeen.add(addr);
+      addresses.push({
+        address: addr,
+        confidence: 75
+      });
+    }
+  }
+  
+  return {
+    dates,
+    amounts,
+    names,
+    phoneNumbers,
+    emails,
+    addresses,
+    allFieldsFound: {
+      datesCount: dates.length,
+      amountsCount: amounts.length,
+      namesCount: names.length,
+      phoneNumbersCount: phoneNumbers.length,
+      emailsCount: emails.length,
+      addressesCount: addresses.length,
+    }
+  };
 }
 
 // Extract staff/property names - uses RAW text to preserve words like "Staff", "Contractor"

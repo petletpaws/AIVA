@@ -16,6 +16,7 @@ import {
   extractDates,
   extractAmounts,
   extractNames,
+  extractAllData,
   cleanupProcessedFiles,
 } from './ocr-utils';
 import {
@@ -510,14 +511,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } else if (uploadedFile.mimeType === 'text/plain') {
         textContent = fs.readFileSync(filePath, 'utf-8');
-        textContent = applyCharacterCorrections(textContent);
+        // Don't apply character corrections to raw text - it's already clean
+        
+        // Use comprehensive extraction for .txt files to capture all data
+        const allData = extractAllData(textContent);
         
         enhancedResults = {
-          dates: extractDates(textContent),
-          amounts: extractAmounts(textContent),
-          names: extractNames(textContent),
+          dates: allData.dates,
+          amounts: allData.amounts,
+          names: allData.names,
           ocrConfidence: 100,
         };
+        
+        // Pass all extracted data to AI for better context
+        console.log('Text file extraction results:', {
+          datesFound: allData.dates.length,
+          amountsFound: allData.amounts.length,
+          namesFound: allData.names.length,
+          emailsFound: allData.emails.length,
+          phoneNumbersFound: allData.phoneNumbers.length,
+          addressesFound: allData.addresses.length,
+        });
       }
 
       // Use OpenAI to extract invoice data, enhanced with pre-extracted structured data
@@ -632,30 +646,42 @@ async function extractInvoiceDataWithAI(
       messages: [
         {
           role: "system",
-          content: `You are an invoice data extraction expert specializing in handwritten and scanned documents. Extract the following information from the invoice text:
-- staffName: The name of the contractor/staff member (look for names near "From:", "By:", "Contractor:", or at the top of the document)
-- totalAmount: The total amount/sum on the invoice (as a number, without currency symbols). Look for the largest amount or amounts near "Total", "Sum", "Amount Due"
-- date: The invoice date in YYYY-MM-DD format. Handle various date formats:
-  * d/m/yy or dd/mm/yy (European): 7/9/25 means 2025-09-07
-  * d.m.yyyy: 02.09.2025 means 2025-09-02
-  * d/m without year: 25/8 means current year, August 25
-  * Written: "Sep 7, 2025" or "7 Sep 2025"
-- propertyName: Any property name, unit number, or address mentioned
-- lineItems: Array of individual line items with description and amount
+          content: `You are an expert data extraction specialist. Extract ALL information from the provided text, including:
 
-Common OCR misreads to consider:
-- "S" or "s" may be "5" in numbers
-- "O" or "o" may be "0" in numbers
-- "l" or "I" or "|" may be "1" in numbers
-- "B" may be "8" in numbers
+STRUCTURED DATA (if present):
+- staffName: The name of the contractor/staff member (look for names near "From:", "By:", "Contractor:", "Staff:", "Technician:", etc.)
+- totalAmount: The total amount/sum (as a number, no currency symbols). Find the largest amount or labeled "Total", "Sum", "Amount Due", "Total Due"
+- date: Date in YYYY-MM-DD format. Support all formats:
+  * ISO: 2025-09-07
+  * European: 7/9/25 or 07.09.2025
+  * Written: Sep 7, 2025 or 7 Sep 2025
+  * Without year: Use current year
+- propertyName: Property name, unit, address, or location mentioned
+- lineItems: Array of line items with description and amount
 
-Respond with JSON in this exact format:
+EXTRACT ALL DATA (return any found):
+- All dates found in the text
+- All monetary amounts found
+- All names/people mentioned
+- All email addresses
+- All phone numbers
+- All addresses mentioned
+
+Return with highest confidence values. If a field is not found, set to null. For amounts/dates, use ALL values found, not just primary ones.
+
+Respond with JSON:
 {
   "staffName": "string or null",
   "totalAmount": "number or null",
-  "date": "string or null (YYYY-MM-DD format)",
+  "date": "string or null (YYYY-MM-DD)",
   "propertyName": "string or null",
-  "lineItems": [{"description": "string", "amount": "number or null"}]
+  "lineItems": [{"description": "string", "amount": "number or null"}],
+  "allDatesFound": ["2025-09-07", ...],
+  "allAmountsFound": [{"value": number, "original": "string"}, ...],
+  "allNamesFound": ["string", ...],
+  "emailsFound": ["email@domain.com", ...],
+  "phoneNumbersFound": ["123-456-7890", ...],
+  "addressesFound": ["123 Main St...", ...]
 }`
         },
         {
